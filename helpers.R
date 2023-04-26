@@ -35,36 +35,40 @@ addBioYear <- function(gps.data){
 calculateHomerange <- function(gps, min.fixes, contour.percent=95, output.proj, output.UD=FALSE){
   
   # check number of locations per animal, adehabitat requires >5/per
-  loc.per.animal <- gps %>% group_by(AnimalID) %>%
-    summarize(Fix_count =  n())
-  drops <- which(loc.per.animal$Fix_count < min.fixes,arr.ind=TRUE)
-  excludes <- loc.per.animal$AnimalID[drops]
-  if (length(drops)>0) gps <- gps[!gps$AnimalID %in% excludes,]
+    loc.per.animal <- gps %>% group_by(AnimalID) %>%
+      summarize(Fix_count =  n())
+    drops <- which(loc.per.animal$Fix_count < min.fixes,arr.ind=TRUE)
+    excludes <- loc.per.animal$AnimalID[drops]
+    if (length(drops)>0) gps <- gps[!gps$AnimalID %in% excludes,]
   
   # ensure AnimalID is a factor
-  gps$AnimalID <- factor(gps$AnimalID)
+    gps$AnimalID <- factor(gps$AnimalID)
+  
+  # create a table that holds attributes for each animal (to add back to polygons)
+    att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),]
   
   gps.sf <- subset(gps,select= AnimalID) # Keep just the "AnimalID" column of spatial object (again a restraint of the package) 
-  # Transform input gps to proj.crs (typically UTM for Oregon)
-  gps.sf.proj <- st_transform(gps.sf,crs=output.proj)  # transform to user input or UTM11 WGS84
+ 
+   # Transform input gps to proj.crs (typically UTM for Oregon)
+    gps.sf.proj <- st_transform(gps.sf,crs=output.proj)  # transform to user input or UTM11 WGS84
   
   # convert from sf to spatial points data frame (reqd by adehabitatHR)
-  gps.collarIDT <- as(gps.sf.proj, "Spatial")
-  
-  print(paste("Kernel function: Bivariate normal"))
-  print(paste("Total number of rows in GPS table for HR calculation: ",nrow(gps.sf)))
-  print(paste("Date range for HR calculation: ",(range(gps$acquisitiontime))[1]," to ",(range(gps$acquisitiontime))[2]))
-  print(paste("Contour level is set to: ",contour.percent, "%"))
+    gps.collarIDT <- as(gps.sf.proj, "Spatial")
+    
+    print(paste("Kernel function: Bivariate normal"))
+    print(paste("Total number of rows in GPS table for HR calculation: ",nrow(gps.sf)))
+    print(paste("Date range for HR calculation: ",(range(gps$acquisitiontime))[1]," to ",(range(gps$acquisitiontime))[2]))
+    print(paste("Contour level is set to: ",contour.percent, "%"))
   
   # transform each data set in list from WGS84 to projected coords
   # and compute UD and polygon HR
-  kud <- kernelUD(gps.collarIDT, grid=400,same4all = TRUE, h="href",extent=0.5)
-  homeranges <- getverticeshr(kud, percent=contour.percent)
+    kud <- kernelUD(gps.collarIDT, grid=400,same4all = TRUE, h="href",extent=0.5)
+    homeranges <- getverticeshr(kud, percent=contour.percent)
   
-  # construct output (to keep things simple limiting to either polygon or UD)
-  if (output.UD) output <- kud
-  else output <- homeranges
-  
+  # add some attributes to the polygon data
+    newtable <- left_join(homeranges@data,att.table,join_by(id == AnimalID))
+    homeranges@data <- newtable[,1:10]
+    
   output <- list(homeranges=homeranges,ud=kud)
   return(output)
   
