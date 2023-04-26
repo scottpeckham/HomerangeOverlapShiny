@@ -1,4 +1,4 @@
-
+# Helper file for Homerange overlap Shiny app
 # this script houses some functions to compute homeranges from GPS tables from our DB#
 #   assumes lat/lon are in WGS84 (i.e. vectronics data format)
 
@@ -171,10 +171,48 @@ makeGPSMap <- function(data, zcol="AnimalID",colors,alpha=0.8) {
   outmap@map
 }
 
-makeHomerangeMap <- function(data, zcol="id",colors,alpha=0.8) {
-  outmap <- mapview(data, zcol=zcol, burst=TRUE,legend=TRUE, cex=4,lwd=1, col.regions=colors,alpha=alpha)
-  outmap@map
+# makeHomerangeMap <- function(data, zcol="id",colors,alpha=0.8) {
+#   outmap <- mapview(data, zcol=zcol, burst=TRUE,legend=TRUE, cex=4,lwd=1, col.regions=colors,alpha=alpha)
+#   outmap@map
+# }
+
+makeHomerangeMap <- function(data){
+  
+  # a large unique color vector for big sets of animalID
+    qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+    col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+  
+    # we want same color pattern for test results (having no "Detected" can swap colors between plots)
+    # colors for test results #
+    tcol <- brewer.pal(3,'RdYlGn')
+    pcr.col.map <- case_when(
+      data@data$CapturePCRStatus == "Detected" ~ 1,
+      data@data$CapturePCRStatus == "Indeterminate" ~ 2,
+      data@data$CapturePCRStatus == "Not detected" ~ 3
+    )
+    pcr.colors <- tcol[sort(unique(pcr.col.map))]
+    ser.col.map <- case_when(
+      data@data$CaptureELISAStatus == "Detected" ~ 1,
+      data@data$CaptureELISAStatus == "Indeterminate" ~ 2,
+      data@data$CaptureELISAStatus == "Not detected" ~ 3
+    )
+    ser.colors <- tcol[sort(unique(ser.col.map))]
+    n.animals <- length(unique(data@data$id))
+    
+      id.col <- sample(col_vector, n.animals)
+      sex.col <- c("pink","blue")
+      celisa.col <- colorRamps::matlab.like(25)
+     
+      outmap <- mapview(data, zcol="id", burst=FALSE,legend=TRUE, cex=4,lwd=1, col.regions=id.col,alpha=0.8)+
+        mapview(data, zcol="Sex", legend=TRUE, cex=4,lwd=1, col.regions=sex.col,alpha=0.8)+
+        mapview(data, zcol="CapturePCRStatus", legend=TRUE, cex=4,lwd=1, col.regions=pcr.colors,alpha=0.8)+
+        mapview(data, zcol="CaptureELISAStatus", legend=TRUE, cex=4,lwd=1, col.regions=ser.colors,alpha=0.8)+
+        mapview(data, zcol="Capture_cELISA", legend=TRUE, cex=4,lwd=1, col.regions=celisa.col,at=c(-15,0,20,40,60,80,100),alpha=0.8)
+      
+    return(outmap@map)
+      
 }
+
 
 overlapImagePlot <- function(intersect.mat){
   #   # simple image of the overlap matrix

@@ -62,12 +62,12 @@ ui <- dashboardPage(
           selectInput("selectHerd", label = "Bighorn Herd:", choices = herds,selected = ""),
           selectInput("selectKernel", label = "Kernel Function:", choices = c("Bivariate Normal","Brownian Bridge"),
                       selected = "Bivariate Normal"),
-          sliderInput("contour.perc", label = "Contour percentage for homerange estimation:", min = 0, 
+          sliderInput("contour.perc", label = "Contour percentage:", min = 0, 
                       max = 100, value = 50),
           selectInput("selectMetric", label = "Overlap metric:", choices = c("Area overlap","UD volume"),
                       selected = "Area overlap"),
-          selectInput("dataSelect", label = "Compute home ranges from:",
-                       choices = list("All data"="all","Date range"="drange"), 
+          selectInput("dataSelect", label = "Subset data:",
+                       choices = list("None"="all","Date range"="drange"), 
                        selected = "all"),
          
           uiOutput("subsetSelect"),
@@ -257,10 +257,13 @@ server <- function(input, output) {
     homeR <- .tmp$homeranges
     
     #mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(length(homeR$id))
-    qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-    col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-    mycolors <- sample(col_vector, length(homeR$id))
-    makeHomerangeMap(homeR,zcol="id",colors=mycolors,alpha=0.8)
+    # qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+    # col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+    # mycolors <- sample(col_vector, length(homeR$id))
+    # makeHomerangeMap(homeR,zcol="id",colors=mycolors,alpha=0.8)
+    
+    makeHomerangeMap(homeR)
+    
   })
   
   output$plot <- renderPlotly({
