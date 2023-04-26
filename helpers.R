@@ -65,7 +65,7 @@ calculateHomerange <- function(gps, min.fixes, contour.percent=95, output.proj, 
   if (output.UD) output <- kud
   else output <- homeranges
   
-  
+  output <- list(homeranges=homeranges,ud=kud)
   return(output)
   
 }
@@ -120,8 +120,10 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   homerange_bb <- getverticeshr(kud.bb, contour.percent)
   
   # construct output (to keep things simple limiting to either polygon or UD)
-  if (output.UD) output <- kud.bb
-  else output <- homerange_bb
+  # if (output.UD) output <- kud.bb
+  # else output <- homerange_bb
+  
+  output <- list(homeranges=homerange_bb,ud=kud.bb)
   
   
   return(output)

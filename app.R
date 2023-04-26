@@ -1,5 +1,5 @@
 # Shiny app to encapsulate the workflow of computing overlap in homeranges of 
-#   animals from a selected herd, and by bioyear or date range
+#   animals from a selected herd, and for a selected date range
 
 library(shiny)
 library(shinydashboard)
@@ -58,13 +58,14 @@ ui <- dashboardPage(
           img(src = "IMG_0368.JPG", height = 150, width = 200),
           strong("Idaho, Oregon, Washington"),
           p("Compute homerange or utilization overlap between all animals in a given herd (BETA)"),
-          p("Note brownian bridge method is computationally intensive, have patience."),
-          br(),
+          p("Note: brownian bridge method is computationally intensive, have patience."),
           selectInput("selectHerd", label = "Bighorn Herd:", choices = herds,selected = ""),
           selectInput("selectKernel", label = "Kernel Function:", choices = c("Bivariate Normal","Brownian Bridge"),
                       selected = "Bivariate Normal"),
           sliderInput("contour.perc", label = "Contour percentage for homerange estimation:", min = 0, 
                       max = 100, value = 50),
+          selectInput("selectMetric", label = "Overlap metric:", choices = c("Area overlap","UD volume"),
+                      selected = "Area overlap"),
           selectInput("dataSelect", label = "Compute home ranges from:",
                        choices = list("All data"="all","Date range"="drange"), 
                        selected = "all"),
@@ -161,7 +162,7 @@ server <- function(input, output) {
                              "Burnt River"=or.crsprj, "Lookout Mountain" =or.crsprj,
                              "Yakima Canyon" = wa.crsprj, "Cleman Mountain" = wa.crsprj)
     
-    withProgress(message = paste("Computing for:", input$selectHerd, " for ",input$dates[1], " to ", input$dates[2]), 
+    withProgress(message = paste("Computing:", input$selectHerd, " over ",input$dates[1], " to ", input$dates[2]), 
                  value = .25, {
     # compute homeranges
       #homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
@@ -172,18 +173,26 @@ server <- function(input, output) {
         homeranges <- suppressWarnings(calculateBBHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
       } 
       
-      proj4string(homeranges) <- crs.projection   # reset this, kernelBB screws up the projection for some reason
+      proj4string(homeranges$homeranges) <- crs.projection   # reset this, kernelBB screws up the projection for some reason
       
     # Increment the progress bar, and update the detail text.
       incProgress(0.75, detail = "Computing overlap of home ranges...")
-      overlap <- suppressWarnings(calculateHomerangeOverlap(homeranges))
+      if (input$selectMetric=="Area overlap"){
+      overlap <- suppressWarnings(calculateHomerangeOverlap(homeranges$homeranges))
+      }
+      if (input$selectMetric=="UD volume"){
+        overlap <- kerneloverlaphr(homeranges$ud, method = "VI",
+                        percent = input$contour.perc)
+        overlap[row(overlap) == col(overlap)] <- NA   # the overlap function returns 1 on diagonal, NA is better for display
+                                                      # doesn't affect calculation because I ignore diagonal in the igraph calls
+      }
     
       
     })
     
     return(
       list(
-        homeranges=homeranges,
+        homeranges=homeranges$homeranges,
         overlap=overlap
       )
     )
