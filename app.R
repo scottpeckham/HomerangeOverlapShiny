@@ -57,8 +57,8 @@ ui <- dashboardPage(
       dashboardSidebar(
           img(src = "IMG_0368.JPG", height = 150, width = 200),
           strong("Idaho, Oregon, Washington"),
-          p("Compute homerange or utilization overlap between all animals in a given herd (BETA)"),
-          p("Note: brownian bridge method is computationally intensive, have patience."),
+          p("Compute home range or UD overlap between all animals in a given herd (BETA). Note: brownian bridge method is computationally intensive, have patience."),
+          #p("Note: brownian bridge method is computationally intensive, have patience."),
           selectInput("selectHerd", label = "Bighorn Herd:", choices = herds,selected = ""),
           selectInput("selectKernel", label = "Kernel Function:", choices = c("Bivariate Normal","Brownian Bridge"),
                       selected = "Bivariate Normal"),
@@ -86,7 +86,7 @@ ui <- dashboardPage(
                 tabPanel("Overlap Dendrogram", plotOutput("clusterdend", width="85%",height=800),
                          downloadButton("downloadClusterPlot", "Download Plot"),
                          downloadButton("downloadClusterData", "Download Data")),
-                tabPanel("Overlap Network", visNetworkOutput("networkplot", width="85%",height=800),
+                tabPanel("Overlap Network", textOutput("networklabel"),visNetworkOutput("networkplot", width="85%",height=800),
                          downloadButton("downloadNetworkPlot", "Download Plot")),
                 tabPanel("Data Table", DT::dataTableOutput("datatable"),
                          downloadButton("downloadTableData", "Download"))
@@ -223,7 +223,7 @@ server <- function(input, output) {
   NetworkPlot <- function(){
     .tmp <-analysisHR()
     ov <- .tmp$overlap
-    suppressWarnings(overlapNetworkPlot(ov))
+    suppressWarnings(overlapNetworkPlot(ov,gps.sf))
   }
   
   ClusterData <- reactive({
@@ -274,6 +274,13 @@ server <- function(input, output) {
     ClusterDend()
   })
 
+  output$networklabel <- renderText({
+    "In the plot of the network below, PCR capture status is denoted by shape where an octagon is detected, 
+     triangle is indeterminate, and circle is not detected. ELISA status is denoted by text color where red 
+    is detected, yellow is indeterminate and green is not detected. The fill color corresponds to cluster membership."
+    
+    })
+  
   # output$networkplot <- renderPlot({
   #   NetworkPlot()
   # })

@@ -259,23 +259,52 @@ overlapClusterDend <- function(data.matrix){
   
 }
 
-overlapNetworkPlot <- function(data.matrix){
+overlapNetworkPlot <- function(data.matrix,gps){
   
   g <- graph_from_adjacency_matrix(data.matrix,mode="directed",weighted=TRUE, diag=FALSE)
   cw <- cluster_walktrap(g,steps=8)
   
   V(g)$community <- cw$membership
   
-  qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-  col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-  #mycolors <- sample(col_vector, max(cw$membership))
-  mycolors <- col_vector[1:max(cw$membership)]
+  # qualitative color pallete for groups
+    qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+    col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+    #mycolors <- sample(col_vector, max(cw$membership))
+    mycolors <- col_vector[1:max(cw$membership)]
+  
+  # first index in gps data frame that matches each animal 
+    t.inds <-  match(V(g)$name, gps$AnimalID)
+    df <- gps[t.inds,]
+    df <- df %>% select(AnimalID, Sex, CapturePCRStatus, CaptureELISAStatus, Capture_cELISA)
+    
+    V(g)$MoviStatus <- as.factor(df$CaptureELISAStatus)
+    V(g)$MoviPCR <- as.factor(df$CapturePCRStatus)
+    V(g)$MovicElisa <- df$Capture_cELISA
+    
+  # colors for test results #
+    test.col <- brewer.pal(3,'RdYlGn')
+    label.col.map <- case_when(
+      V(g)$MoviStatus == "Detected" ~ 1,
+      V(g)$MoviStatus == "Indeterminate" ~ 2,
+      V(g)$MoviStatus == "Not detected" ~ 3
+    )
+    # set label color to test Elisa results
+    V(g)$label.color <- test.col[label.col.map]
+  
+  # set shape to PCR test 
+    shape.map <- case_when(
+      V(g)$MoviPCR == "Detected" ~ "hexagon",
+      V(g)$MoviPCR == "Indeterminate" ~ "triangle",
+      V(g)$MoviPCR == "Not detected" ~ "dot"
+    )
+    # set label color to test Elisa results
+    V(g)$shape <- shape.map
   
   #plot(g, layout=layout, vertex.color=mycolors[V(g)$community],vertex.label=V(g)$name,edge.arrow.size=.2)
  
    E(g)$width <- E(g)$weight*3
   V(g)$label.cex = 0.7
-  V(g)$label.color = "black"
+  #V(g)$label.color = "black"
   V(g)$color <- mycolors[V(g)$community]
   V(g)$label=V(g)$name
   visIgraph(g, idToLabel = FALSE) %>% visIgraphLayout(layout = "layout_nicely") %>%
