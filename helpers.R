@@ -201,7 +201,7 @@ makeHomerangeMap <- function(data){
     
       id.col <- sample(col_vector, n.animals)
       sex.col <- c("pink","blue")
-      celisa.col <- colorRamps::matlab.like(25)
+      celisa.col <- colorRamps::matlab.like(7)
      
       outmap <- mapview(data, zcol="id", burst=FALSE,legend=TRUE, cex=4,lwd=1, col.regions=id.col,alpha=0.8)+
         mapview(data, zcol="Sex", legend=TRUE, cex=4,lwd=1, col.regions=sex.col,alpha=0.8)+
