@@ -4,14 +4,10 @@
 
 # required packages #
 library(sf)
-library(rgdal)
-library(spatial)
 library(adehabitatHR)
 library(adehabitatLT)
 library(RColorBrewer)
 library(mapview)
-library(odbc)
-library(RSQLite)
 library(sp)
 library(dplyr)
 library(igraph)
