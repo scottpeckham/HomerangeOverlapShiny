@@ -56,7 +56,7 @@ ui <- dashboardPage(
       dashboardHeader(title = "Tri-State TnR Home Range Overlap Tool",titleWidth = 450),
       dashboardSidebar(
           img(src = "IMG_0368.JPG", height = 150, width = 200),
-          strong("Idaho, Oregon, Washington"),
+          #strong("Idaho, Oregon, Washington"),
           p("Compute home range or UD overlap between all animals in a given herd (BETA). Note: brownian bridge method is computationally intensive, have patience."),
           selectInput("selectHerd", label = "Bighorn Herd:", choices = herds,selected = ""),
           selectInput("selectKernel", label = "Kernel Function:", choices = c("Bivariate Normal","Brownian Bridge"),
@@ -274,8 +274,8 @@ server <- function(input, output) {
   })
 
   output$networklabel <- renderText({
-    "In the plot of the network below, PCR status at capture is denoted by shape of the nodes, where 'detected' is an octagon, 
-     'indeterminate' a triangle, and circle is 'not detected'. ELISA status is denoted by text color where red 
+    "In the network plot below, PCR status at capture is denoted by node shape, where 'detected' is an octagon, 
+     'indeterminate' a triangle, 'not detected' a circle. ELISA status at capture is denoted by text color where red 
     is 'detected', yellow is 'indeterminate' and green is 'not detected'. The fill color corresponds to cluster membership, matching the dendrogram in the previous tab."
     
     })

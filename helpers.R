@@ -303,7 +303,7 @@ overlapNetworkPlot <- function(data.matrix,gps){
   #V(g)$label.color = "black"
   V(g)$color <- mycolors[V(g)$community]
   V(g)$label=V(g)$name
-  visIgraph(g, idToLabel = FALSE) %>% visIgraphLayout(layout = "layout_nicely") %>%
+  visIgraph(g, idToLabel = FALSE) %>% visIgraphLayout(layout = "layout_with_kk") %>%
     visOptions(nodesIdSelection = TRUE, highlightNearest = TRUE)
   
 }
