@@ -14,6 +14,7 @@ library(igraph)
 library(heatmaply)
 library(dendextend)
 library(visNetwork)
+library(colorRamps)
 # required packages #
 
 getBioYear <- function(indate){
@@ -76,6 +77,9 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   gps <- arrange(gps, AnimalID, acquisitiontime)
   gps$AnimalID <- factor(gps$AnimalID)
   
+  # create a table that holds attributes for each animal (to add back to polygons)
+  att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),]
+  
   
   # Transform input gps to proj.crs (typically UTM for Oregon)
   gps.sf.utm <- st_transform(gps,crs=output.proj)  # transform to user input or UTM11 WGS84
@@ -117,13 +121,17 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   
   # BB home range #
   kud.bb <- kernelbb(collar_traj, sig1=avg_sig1 ,sig2=sig2, grid=400, extent=0.5,same4all = TRUE)
-  homerange_bb <- getverticeshr(kud.bb, contour.percent)
+  homeranges <- getverticeshr(kud.bb, contour.percent)
   
   # construct output (to keep things simple limiting to either polygon or UD)
   # if (output.UD) output <- kud.bb
   # else output <- homerange_bb
   
-  output <- list(homeranges=homerange_bb,ud=kud.bb)
+  # add some attributes to the polygon data
+  newtable <- left_join(homeranges@data,att.table,join_by(id == AnimalID))
+  homeranges@data <- newtable[,1:10]
+  
+  output <- list(homeranges=homeranges,ud=kud.bb)
   
   
   return(output)
@@ -200,10 +208,10 @@ makeHomerangeMap <- function(data){
       celisa.col <- colorRamps::matlab.like(7)
      
       outmap <- mapview(data, zcol="id", burst=FALSE,legend=TRUE, cex=4,lwd=1, col.regions=id.col,alpha=0.8)+
-        mapview(data, zcol="Sex", legend=TRUE, cex=4,lwd=1, col.regions=sex.col,alpha=0.8)+
-        mapview(data, zcol="CapturePCRStatus", legend=TRUE, cex=4,lwd=1, col.regions=pcr.colors,alpha=0.8)+
-        mapview(data, zcol="CaptureELISAStatus", legend=TRUE, cex=4,lwd=1, col.regions=ser.colors,alpha=0.8)+
-        mapview(data, zcol="Capture_cELISA", legend=TRUE, cex=4,lwd=1, col.regions=celisa.col,at=c(-15,0,20,40,60,80,100),alpha=0.8)
+        mapview(data, zcol="Sex", legend=TRUE, cex=4,lwd=1, col.regions=sex.col,alpha=0.8, hide=TRUE)+
+        mapview(data, zcol="CapturePCRStatus", legend=TRUE, cex=4,lwd=1, col.regions=pcr.colors,alpha=0.8, hide=TRUE)+
+        mapview(data, zcol="CaptureELISAStatus", legend=TRUE, cex=4,lwd=1, col.regions=ser.colors,alpha=0.8, hide=TRUE)+
+        mapview(data, zcol="Capture_cELISA", legend=TRUE, cex=4,lwd=1, col.regions=celisa.col,at=c(-15,0,20,40,60,80,100),alpha=0.8, hide=TRUE)
       
     return(outmap@map)
       
@@ -240,6 +248,8 @@ overlapClusterDend <- function(data.matrix){
   # dendPlot(ceb,mode="hclust",main="")
   
   cw <- cluster_walktrap(g,steps=8)
+  #cw <- cluster_edge_betweenness(g,directed=TRUE)
+  
   V(g)$community <- cw$membership
   
   qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
@@ -259,6 +269,7 @@ overlapNetworkPlot <- function(data.matrix,gps){
   
   g <- graph_from_adjacency_matrix(data.matrix,mode="directed",weighted=TRUE, diag=FALSE)
   cw <- cluster_walktrap(g,steps=8)
+  #cw <- cluster_edge_betweenness(g,directed=TRUE)
   
   V(g)$community <- cw$membership
   
@@ -318,6 +329,8 @@ getClusterData <- function(data.matrix){
   #ceb <- cluster_edge_betweenness(g,membership = TRUE)
   #co <- cluster_optimal(g)  # not hieracrchical so can't use dendPlot
   cw <- cluster_walktrap(g,steps=8)
+  #cw <- cluster_louvain(g)
+  #cw <- cluster_edge_betweenness(g,directed=TRUE)
   #dendPlot(ceb,mode="hclust",main="")
   
   #data to return
@@ -330,6 +343,7 @@ attributeNetworkPlot <- function(data.matrix, display="Elisa", gps){
   # create the graph, and cluster
   g <- graph_from_adjacency_matrix(data.matrix,mode="directed",weighted=TRUE, diag=FALSE)
   cw <- cluster_walktrap(g,steps=8)
+  #cw <- cluster_edge_betweenness(g,directed=TRUE)
   
   #layout <-layout.fruchterman.reingold(g)
   #layout <- layout_with_kk(g)

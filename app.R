@@ -180,7 +180,7 @@ server <- function(input, output) {
       overlap <- suppressWarnings(calculateHomerangeOverlap(homeranges$homeranges))
       }
       if (input$selectMetric=="UD volume"){
-        overlap <- kerneloverlaphr(homeranges$ud, method = "VI",
+        overlap <- kerneloverlaphr(homeranges$ud, method = "PHR",
                         percent = input$contour.perc)
         overlap[row(overlap) == col(overlap)] <- NA   # the overlap function returns 1 on diagonal, NA is better for display
                                                       # doesn't affect calculation because I ignore diagonal in the igraph calls
