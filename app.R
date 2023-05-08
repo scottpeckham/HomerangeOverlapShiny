@@ -63,11 +63,12 @@ ui <- dashboardPage(
                       selected = "Bivariate Normal"),
           sliderInput("contour.perc", label = "Contour percentage:", min = 0, 
                       max = 100, value = 50),
+          
           selectInput("selectMetric", label = "Overlap metric:", choices = c("Area overlap","UD volume"),
                       selected = "Area overlap"),
-          selectInput("dataSelect", label = "Subset data:",
-                       choices = list("None"="all","Date range"="drange"), 
-                       selected = "all"),
+          # selectInput("dataSelect", label = "Subset data:",
+          #              choices = list("None"="all","Date range"="drange"), 
+          #              selected = "all"),
          
           uiOutput("subsetSelect"),
                    
@@ -78,38 +79,74 @@ ui <- dashboardPage(
   dashboardBody(
     
     tabsetPanel(type = "tabs",
+                
                 tabPanel("Home Ranges", mapviewOutput("homemap",width="95%",height=800)),
                 tabPanel("GPS Locations", mapviewOutput("gpsmap",width="95%",height=800)),
                 tabPanel("Overlap Matrix", plotlyOutput("plot", width="85%",height=800),
                          downloadButton("downloadPlot", "Download")),
-                tabPanel("Overlap Dendrogram", plotOutput("clusterdend", width="85%",height=800),
-                         downloadButton("downloadClusterPlot", "Download Plot"),
-                         downloadButton("downloadClusterData", "Download Data")),
                 tabPanel("Overlap Network", textOutput("networklabel"),visNetworkOutput("networkplot", width="85%",height=800),
                          downloadButton("downloadNetworkPlot", "Download Plot")),
+                tabPanel("Overlap Dendrogram", plotOutput("clusterdend", width="85%",height=800),
+                         downloadButton("downloadDendPlot", "Download Plot"),
+                         downloadButton("downloadClusterData", "Download Data")),
                 tabPanel("Data Table", DT::dataTableOutput("datatable"),
-                         downloadButton("downloadTableData", "Download"))
+                         downloadButton("downloadTableData", "Download")),
+                tabPanel("Tool-Info",
+                         #img(src = "IMG_0368.JPG", height = 300, width = 450),
+                         br(),
+                         hr(),
+                         h4(strong("Tool Description")),
+                         p(style="text-align: justify; font-size = 25px",
+                           "This application will first compute home ranges for every GPS-collared animal in the selected herd using the 'adehabitatHR' package and either a bivariate normal or brownian bridge kernel function. Then, the amount of overlap between each animal (area or UD) is calculated and stored in a NxN matrix. The kernel functionand contour level used to 
+    compute the home range from the utilization distribution are user-configurable using the inputs on the left. The first tab contains a map of the computed home ranges. The polygons are also attributed with some of the capture and health testing results by individual. 
+    
+    In the next tab, we plot the NxN matrix that contains the fraction of each animals home range (by row in the matrix) 
+    contained in every other animal in the herd (by columns). This plot gets messy with large numbers of animals. But you can explore
+    the data and look at patterns or the relationship between specific animals.
+    
+     "),
+                         br(),
+                         p(style="text-align: justify; font-size = 25px","Next, treating this NxN matrix as a weighted adjacency matrix we can use tools 
+    from the 'igraph' network analysis package to model the network and identify clusters in the data by viewing this data as a 
+    directed social network, with the connection between animals weighted by the amount of home range overlap. 
+    Note that in a directed network,the connection A to B can be different than B to A, which matches our data. The adjacency 
+    matrix community structure is computed using a hierarchical walktrap method and displayed as a 1) a network plot and 
+    2) a dendrogram. Now that we have mapped out existing social groups based on overlap in individual 
+    home ranges, we can add the results of testing for Movi to our display."),
+                         br(),
+                         p(style="text-align: justify; font-size = 25px","In the network plot in the 4th tab, PCR status 
+    at capture is denoted by node shape, where 'detected' is an octagon, 
+     'indeterminate' a triangle, 'not detected' a circle. ELISA status at capture is denoted by text color where red 
+    is 'detected', yellow is 'indeterminate' and green is 'not detected'. The fill color corresponds to cluster membership,
+    matching the dendrogram in the previous tab. This is an interactive plot.
+    
+    In the fourth tab with the dendrogram, note that the group colors in the network plot match 
+    the leaf text color in the dendrogram."),
+                         br(),
+                         p(style="text-align: justify; font-size = 25px","About downloads: the tool allows for the download of the raw matrix in the last tab. The dendrogram tab allows for a download of the 
+                           exact copy of the dendrogram plot along with the community membership data in .csv. The download of the matrix and plots are slightly different as  those shown
+                           since we're implementing interactive plotting methods in those two tabs."),
+                         tags$blockquote("This application is still under development. 
+                            Email scott.peckham78@gmail.com for troubleshooting or bug reporting."),
+                         hr()))
                 
-              )
   )
 )
-
-
 
 server <- function(input, output) {
   
   # first deal with the reactive UI issue (i.e. we don't know number of years or dates)
   output$subsetSelect <- renderUI({
     
-    if (input$dataSelect == "drange"){
+    #if (input$dataSelect == "drange"){
       mind=unlist(c(avail.dates[which(input$selectHerd %in% avail.dates$Herd),2]))
       maxd=unlist(c(avail.dates[which(input$selectHerd %in% avail.dates$Herd),3]))
       dateRangeInput("dates",label="Date Range for home range computation:",
-                     start  = "2023-02-10",
-                     end    = "2023-03-20",
+                     start  = "2023-01-01",
+                     end    = "2023-03-31",
                      min=mind,
                      max=maxd)
-    }
+    #}
     
   })
   
@@ -145,11 +182,10 @@ server <- function(input, output) {
   getData <- eventReactive(input$runAnalysis, {
     t1 <- as.POSIXct(input$dates[1],tz="UTC")
     t2 <- as.POSIXct(input$dates[2],tz="UTC")
-    switch(input$dataSelect, 
-                     "all" = gps.sf,
-                     "drange" = subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2)) %>% filter(Herd %in% input$selectHerd)
+    subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2) %>% filter(Herd %in% input$selectHerd)
     
   })
+  
   analysisHR <- eventReactive(input$runAnalysis,{
     
     output.proj <-switch(input$selectHerd,
@@ -208,6 +244,12 @@ server <- function(input, output) {
     overlapImagePlot(ov)
   }
   
+  MatrixPlotDownload <- function(){
+    .tmp <-analysisHR()
+    ov <- .tmp$overlap
+    overlapMatrixPlotDownload(ov)
+  }
+  
   # ClusterPlot <- reactive({
   #   .tmp <-analysisHR()
   #   ov <- .tmp$overlap
@@ -223,6 +265,12 @@ server <- function(input, output) {
     .tmp <-analysisHR()
     ov <- .tmp$overlap
     suppressWarnings(overlapNetworkPlot(ov,gps.sf))
+  }
+ 
+  NetworkPlotDownload <- function(){
+    .tmp <-analysisHR()
+    ov <- .tmp$overlap
+    suppressWarnings(overlapNetworkPlotOutput(ov,gps.sf))
   }
   
   ClusterData <- reactive({
@@ -251,6 +299,7 @@ server <- function(input, output) {
     mycolors <- sample(col_vector, n.animals)
     makeGPSMap(plotdata, zcol=zcol,colors=mycolors,alpha=0.8)
   })
+  
   output$homemap <- renderLeaflet({
     .tmp <-analysisHR()
     homeR <- .tmp$homeranges
@@ -286,12 +335,7 @@ server <- function(input, output) {
   output$networkplot <- renderVisNetwork({
     NetworkPlot()
   })
-  # # typical table rendering
-  # output$datatable <- renderTable({
-  #   .tmp <-analysisHR()
-  #   .tmp$overlap
-  # },rownames=TRUE,striped=TRUE)
-
+  
   
   # render table using DT to allow scroll
   output$datatable <- DT::renderDataTable({
@@ -300,27 +344,40 @@ server <- function(input, output) {
       pageLength=25, scrollX='400px'), filter = 'top')
   })
     
-  # Downloadable overlap plot ----
+  # Downloadable matrix overlap plot ----
   output$downloadPlot <- downloadHandler(
     filename = function() {
-      paste(input$selectHerd, "_HomerangeOverlapPlot.pdf", sep = "")
+      paste(input$selectHerd, "_OverlapMatrixPlot.pdf", sep = "")
     }, 
-    content = function(file) {
+    content = function(file,width=13,height=10) {
       pdf(file)
-      overlapPlot()
+      MatrixPlotDownload()
+      dev.off()
+    },
+    contentType = "application/pdf"
+  )
+  
+  # Downloadable network plot ----
+  output$downloadNetworkPlot <- downloadHandler(
+    filename = function() {
+      paste(input$selectHerd, "_CommunityNetworkPlot.pdf", sep = "")
+    },
+    content = function(file) {
+      pdf(file,width=12,height=10)
+      NetworkPlotDownload()
       dev.off()
     },
     contentType = "application/pdf"
   )
   
   # Downloadable cluster plot ----
-  output$downloadClusterPlot <- downloadHandler(
+  output$downloadDendPlot <- downloadHandler(
     filename = function() {
-      paste(input$selectHerd, "_HomerangeClusterPlot.pdf", sep = "")
+      paste(input$selectHerd, "_ClusterDendrogram.pdf", sep = "")
     },
     content = function(file) {
-      pdf(file)
-      ClusterPlot()
+      pdf(file,width=12,height=10)
+      ClusterDend()
       dev.off()
     },
     contentType = "application/pdf"
