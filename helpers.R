@@ -291,7 +291,8 @@ overlapNetworkPlot <- function(data.matrix,gps){
     V(g)$MovicElisa <- df$Capture_cELISA
     
   # colors for test results #
-    test.col <- brewer.pal(3,'RdYlGn')
+    test.col <- brewer.pal(5,'RdYlGn')
+    test.col <- test.col[c(1,3,5)]
     label.col.map <- case_when(
       V(g)$MoviStatus == "Detected" ~ 1,
       V(g)$MoviStatus == "Indeterminate" ~ 2,
@@ -302,7 +303,7 @@ overlapNetworkPlot <- function(data.matrix,gps){
   
   # set shape to PCR test 
     shape.map <- case_when(
-      V(g)$MoviPCR == "Detected" ~ "hexagon",
+      V(g)$MoviPCR == "Detected" ~ "star",
       V(g)$MoviPCR == "Indeterminate" ~ "triangle",
       V(g)$MoviPCR == "Not detected" ~ "dot"
     )
