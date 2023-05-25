@@ -185,27 +185,39 @@ makeGPSMap <- function(data, zcol="AnimalID",colors,alpha=0.8) {
 makeHomerangeMap <- function(data){
   
   # a large unique color vector for big sets of animalID
+    n.animals <- nrow(data@data)
     qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
     col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-  
-    # we want same color pattern for test results (having no "Detected" can swap colors between plots)
-    # colors for test results #
-    tcol <- brewer.pal(3,'RdYlGn')
+    
+    # handle missing or NA in testing fields so they don't screw up the color mapping
+    data@data$CaptureELISAStatus[which(data@data$CaptureELISAStatus==""| is.na(data@data$CaptureELISAStatus),arr.ind=TRUE)] <- "No Record"
+    data@data$CapturePCRStatus[which(data@data$CapturePCRStatus==""| is.na(data@data$CapturePCRStatus),arr.ind=TRUE)] <- "No Record"
+    
+    tcol <- c(brewer.pal(3,'RdYlGn'),"#CCCCCC")
+    tcol.shuf <- c(tcol[1:2],tcol[4],tcol[3])
+    tcol <- tcol.shuf
     pcr.col.map <- case_when(
       data@data$CapturePCRStatus == "Detected" ~ 1,
       data@data$CapturePCRStatus == "Indeterminate" ~ 2,
-      data@data$CapturePCRStatus == "Not detected" ~ 3
+      data@data$CapturePCRStatus == "Not detected" ~ 4,
+      data@data$CapturePCRStatus == "No Record" ~ 3
     )
     pcr.colors <- tcol[sort(unique(pcr.col.map))]
+    #pcr.colors <- tcol[pcr.col.map]
+    
     ser.col.map <- case_when(
       data@data$CaptureELISAStatus == "Detected" ~ 1,
       data@data$CaptureELISAStatus == "Indeterminate" ~ 2,
-      data@data$CaptureELISAStatus == "Not detected" ~ 3
+      data@data$CaptureELISAStatus == "Not detected" ~ 4,
+      data@data$CaptureELISAStatus == "No Record" ~ 3
     )
     ser.colors <- tcol[sort(unique(ser.col.map))]
-    n.animals <- length(unique(data@data$id))
     
-      id.col <- sample(col_vector, n.animals)
+    n.animals <- length(unique(data@data$id))
+    # 
+      
+      
+      if(n.animals > length(col_vector)) id.col <- sample(col_vector, n.animals, replace=TRUE) else id.col <- sample(col_vector, n.animals)
       sex.col <- c("pink","blue")
       celisa.col <- colorRamps::matlab.like(7)
      

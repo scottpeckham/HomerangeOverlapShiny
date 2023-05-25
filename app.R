@@ -23,6 +23,8 @@ source("helpers.R")
   wa.prj <- 2285
   wgs.crsproj <- CRS("+init=epsg:4326") # CRS used for GPS data files
   wgs.proj <- 4326
+  id.prj <- 8826 # Idaho Transverse Mercator
+  id.crsprj <- CRS("+init=epsg:8826") 
 
 # pre-loaded gps data is here #
   load("data/appdata.rda")
@@ -30,7 +32,12 @@ source("helpers.R")
 # go ahead and add bio year to gps table #
   gps <- addBioYear(gps)
  
-  # determine some bookends from the data #
+  # LPMS has a weirdo point so we screen out anything east of lon -113
+  # Lostine has 12LO27 the famous wanderer that has no GPS location in Lostine but was marked as a lamb there, will cause errors
+    gps <- gps %>% filter(Longitude < -113.0 & AnimalID != "12LO27")
+  
+  
+# determine some bookends from the data #
   #   these will be needed to modify the button options
   herds <- unique(gps$Herd)
   avail.dates <- gps %>% group_by(Herd) %>% summarise(MinDate=min(acquisitiontime),MaxDate=max(acquisitiontime))
@@ -47,7 +54,9 @@ source("helpers.R")
 # Convert the dataframe to a spatial object. Note that the
 # crs= 4326 parameter assigns a WGS84 coordinate system to the 
 # spatial object
-  gps.sf <- st_as_sf(gps, coords = c("longitude", "latitude"), crs = 4326)
+  gps.sf <- st_as_sf(gps, coords = c("Longitude", "Latitude"), crs = 4326)
+  rm(gps) # free up some memory
+  
 
 
   
@@ -115,7 +124,7 @@ ui <- dashboardPage(
     home ranges, we can add the results of testing for Movi to our display."),
                          br(),
                          p(style="text-align: justify; font-size = 25px","In the network plot in the 4th tab, PCR status 
-    at capture is denoted by node shape, where 'detected' is an octagon, 
+    at capture is denoted by node shape, where 'detected' is a star, 
      'indeterminate' a triangle, 'not detected' a circle. ELISA status at capture is denoted by text color where red 
     is 'detected', yellow is 'indeterminate' and green is 'not detected'. The fill color corresponds to cluster membership,
     matching the dendrogram in the previous tab. This is an interactive plot.
@@ -182,7 +191,7 @@ server <- function(input, output) {
   getData <- eventReactive(input$runAnalysis, {
     t1 <- as.POSIXct(input$dates[1],tz="UTC")
     t2 <- as.POSIXct(input$dates[2],tz="UTC")
-    subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2) %>% filter(Herd %in% input$selectHerd)
+    outdata <- subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2) %>% filter(Herd %in% input$selectHerd)
     
   })
   
@@ -190,12 +199,17 @@ server <- function(input, output) {
     
     output.proj <-switch(input$selectHerd,
            "Burnt River"=or.prj,
-           "Lookout Mountain" =or.prj,
+           "Lookout Mountain" = or.prj,
+           "Lostine" = or.prj,
            "Yakima Canyon" = wa.prj,
-           "Cleman Mountain" = wa.prj)
+           "Cleman Mountain" = wa.prj,
+           "Lower Salmon" = id.prj,
+           "Lower Panther Main Salmon" = id.prj)
     crs.projection <- switch(input$selectHerd,
-                             "Burnt River"=or.crsprj, "Lookout Mountain" =or.crsprj,
-                             "Yakima Canyon" = wa.crsprj, "Cleman Mountain" = wa.crsprj)
+                             "Burnt River"= or.crsprj, "Lookout Mountain" = or.crsprj, "Lostine"= or.crsprj,
+                             "Yakima Canyon" = wa.crsprj, "Cleman Mountain" = wa.crsprj,
+                             "Lower Salmon" = id.crsprj,
+                             "Lower Panther Main Salmon" = id.crsprj)
     
     withProgress(message = paste("Computing:", input$selectHerd, " over ",input$dates[1], " to ", input$dates[2]), 
                  value = .25, {
@@ -296,7 +310,7 @@ server <- function(input, output) {
     #
     qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
     col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-    mycolors <- sample(col_vector, n.animals)
+    if(n.animals > length(col_vector)) mycolors <- sample(col_vector, n.animals, replace=TRUE) else mycolors <- sample(col_vector, n.animals)
     makeGPSMap(plotdata, zcol=zcol,colors=mycolors,alpha=0.8)
   })
   
