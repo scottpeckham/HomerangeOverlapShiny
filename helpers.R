@@ -462,11 +462,12 @@ overlapNetworkPlotOutput <- function(data.matrix,gps){
   V(g)$MovicElisa <- df$Capture_cELISA
   
   # colors for test results #
-  test.col <- c("green4","sienna3","red3")
+  test.col <- c("green4","sienna3","red3","grey70")
   label.col.map <- case_when(
     V(g)$MoviStatus == "Detected" ~ 1,
     V(g)$MoviStatus == "Indeterminate" ~ 2,
-    V(g)$MoviStatus == "Not detected" ~ 3
+    V(g)$MoviStatus == "Not detected" ~ 3,
+    .default = 4
   )
   # set label color to test Elisa results
   V(g)$label.color <- test.col[label.col.map]
@@ -498,7 +499,8 @@ overlapNetworkPlotOutput <- function(data.matrix,gps){
   shape.map <- case_when(
     V(g)$MoviPCR == "Detected" ~ "square",
     V(g)$MoviPCR == "Indeterminate" ~ "triangle",
-    V(g)$MoviPCR == "Not detected" ~ "circle"
+    V(g)$MoviPCR == "Not detected" ~ "circle",
+    .default = "circle"
   )
   # set label color to test Elisa results
   V(g)$shape <- shape.map
