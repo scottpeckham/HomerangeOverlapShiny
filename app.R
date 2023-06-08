@@ -337,7 +337,7 @@ server <- function(input, output) {
   })
 
   output$networklabel <- renderText({
-    "In the network plot below, PCR status at capture is denoted by node shape, where 'detected' is an octagon, 
+    "In the network plot below, PCR status at capture is denoted by node shape, where 'detected' is a star, 
      'indeterminate' a triangle, 'not detected' a circle. ELISA status at capture is denoted by text color where red 
     is 'detected', yellow is 'indeterminate' and green is 'not detected'. The fill color corresponds to cluster membership, matching the dendrogram in the previous tab."
     
