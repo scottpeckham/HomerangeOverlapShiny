@@ -89,8 +89,8 @@ ui <- dashboardPage(
     
     tabsetPanel(type = "tabs",
                 
-                tabPanel("Home Ranges", mapviewOutput("homemap",width="95%",height=800)),
-                tabPanel("GPS Locations", mapviewOutput("gpsmap",width="95%",height=800)),
+                tabPanel("Home Ranges", leafletOutput("homemap",width="95%",height=800)),
+                tabPanel("GPS Locations", leafletOutput("gpsmap",width="95%",height=800)),
                 tabPanel("Overlap Matrix", plotlyOutput("plot", width="85%",height=800),
                          downloadButton("downloadPlot", "Download")),
                 tabPanel("Overlap Network", textOutput("networklabel"),visNetworkOutput("networkplot", width="85%",height=800),
@@ -222,7 +222,7 @@ server <- function(input, output) {
         homeranges <- suppressWarnings(calculateBBHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
       } 
       
-      proj4string(homeranges$homeranges) <- crs.projection   # reset this, kernelBB screws up the projection for some reason
+      
       
     # Increment the progress bar, and update the detail text.
       incProgress(0.75, detail = "Computing overlap of home ranges...")

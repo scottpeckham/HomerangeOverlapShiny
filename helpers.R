@@ -45,6 +45,9 @@ calculateHomerange <- function(gps, min.fixes, contour.percent=95, output.proj, 
   
   # create a table that holds attributes for each animal (to add back to polygons)
     att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),]
+    sz <- gps %>% as.data.frame() %>% group_by(AnimalID) %>% summarize(nLocations=n(),startDate=min(acquisitiontime),endDate=max(acquisitiontime))
+    att.table <- left_join(att.table,sz,by="AnimalID")
+    att.table <- att.table[,c(1:8,10,12:14)] #strip off some useless columns
   
   gps.sf <- subset(gps,select= AnimalID) # Keep just the "AnimalID" column of spatial object (again a restraint of the package) 
  
@@ -61,12 +64,19 @@ calculateHomerange <- function(gps, min.fixes, contour.percent=95, output.proj, 
   
   # transform each data set in list from WGS84 to projected coords
   # and compute UD and polygon HR
-    kud <- kernelUD(gps.collarIDT, grid=400,same4all = TRUE, h="href",extent=0.5)
+    kud <- kernelUD(gps.collarIDT, grid=200,same4all = FALSE, h="href",extent=1.0)
     homeranges <- getverticeshr(kud, percent=contour.percent)
   
   # add some attributes to the polygon data
     newtable <- left_join(homeranges@data,att.table,join_by(id == AnimalID))
-    homeranges@data <- newtable[,1:10]
+    homeranges@data <- newtable
+    
+    homeranges <- st_as_sf(homeranges)   # convert to sf, for some reason the BB homeranges CRS are screwed up by adehabitat, 
+    st_crs(homeranges) <- output.proj
+    
+    # Restore column name
+    names(homeranges)[1] <- "AnimalID"
+    
     
   output <- list(homeranges=homeranges,ud=kud)
   return(output)
@@ -81,7 +91,9 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   
   # create a table that holds attributes for each animal (to add back to polygons)
   att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),]
-  
+  sz <- gps %>% as.data.frame() %>% group_by(AnimalID) %>% summarize(nLocations=n(),startDate=min(acquisitiontime),endDate=max(acquisitiontime))
+  att.table <- left_join(att.table,sz,by="AnimalID")
+  att.table <- att.table[,c(1:8,10,12:14)] #strip off some useless columns
   
   # Transform input gps to proj.crs (typically UTM for Oregon)
   gps.sf.utm <- st_transform(gps,crs=output.proj)  # transform to user input or UTM11 WGS84
@@ -122,7 +134,7 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   
   
   # BB home range #
-  kud.bb <- kernelbb(collar_traj, sig1=avg_sig1 ,sig2=sig2, grid=400, extent=0.5,same4all = TRUE)
+  kud.bb <- kernelbb(collar_traj, sig1=avg_sig1 ,sig2=sig2, grid=200, extent=1.0,same4all = FALSE)
   homeranges <- getverticeshr(kud.bb, contour.percent)
   
   # construct output (to keep things simple limiting to either polygon or UD)
@@ -131,7 +143,13 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   
   # add some attributes to the polygon data
   newtable <- left_join(homeranges@data,att.table,join_by(id == AnimalID))
-  homeranges@data <- newtable[,1:10]
+  homerange_bb@data <- newtable
+  
+  homerange_bb <- st_as_sf(homerange_bb)   # for some reason the BB homeranges CRS are screwed up by adehabitat
+  st_crs(homerange_bb) <- output.proj
+  
+  # Restore column name
+  names(homerange_bb)[1] <- "AnimalID"
   
   output <- list(homeranges=homeranges,ud=kud.bb)
   
@@ -144,11 +162,11 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
 calculateHomerangeOverlap <- function(homerange){
   # compute num animals and build matrix
   
-    n.animal <- length(homerange$id)
+    n.animal <- length(homerange$AnimalID)
   intersect.mat <- matrix(NA,nrow=n.animal,ncol=n.animal)
-  dimnames(intersect.mat) <- list(homerange$id, homerange$id)
+  dimnames(intersect.mat) <- list(homerange$AnimalID, homerange$AnimalID)
   
-  homerange <- st_as_sf(homerange)  # convert to sf to use nice intersection function
+  #homerange <- st_as_sf(homerange)  # convert to sf to use nice intersection function
   
   # loop to compute overlap between each (probably could vectorize this later ?)
   for (i in 1:n.animal){
@@ -182,38 +200,39 @@ makeGPSMap <- function(data, zcol="AnimalID",colors,alpha=0.8) {
 #   outmap@map
 # }
 
+# input an sf object to make home range map
 makeHomerangeMap <- function(data){
   
   # a large unique color vector for big sets of animalID
-    n.animals <- nrow(data@data)
+    n.animals <- nrow(data)
     qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
     col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
     
     # handle missing or NA in testing fields so they don't screw up the color mapping
-    data@data$CaptureELISAStatus[which(data@data$CaptureELISAStatus==""| is.na(data@data$CaptureELISAStatus),arr.ind=TRUE)] <- "No Record"
-    data@data$CapturePCRStatus[which(data@data$CapturePCRStatus==""| is.na(data@data$CapturePCRStatus),arr.ind=TRUE)] <- "No Record"
+    data$CaptureELISAStatus[which(data$CaptureELISAStatus==""| is.na(data$CaptureELISAStatus),arr.ind=TRUE)] <- "No Record"
+    data$CapturePCRStatus[which(data$CapturePCRStatus==""| is.na(data$CapturePCRStatus),arr.ind=TRUE)] <- "No Record"
     
     tcol <- c(brewer.pal(3,'RdYlGn'),"#CCCCCC")
     tcol.shuf <- c(tcol[1:2],tcol[4],tcol[3])
     tcol <- tcol.shuf
     pcr.col.map <- case_when(
-      data@data$CapturePCRStatus == "Detected" ~ 1,
-      data@data$CapturePCRStatus == "Indeterminate" ~ 2,
-      data@data$CapturePCRStatus == "Not detected" ~ 4,
-      data@data$CapturePCRStatus == "No Record" ~ 3
+      data$CapturePCRStatus == "Detected" ~ 1,
+      data$CapturePCRStatus == "Indeterminate" ~ 2,
+      data$CapturePCRStatus == "Not detected" ~ 4,
+      data$CapturePCRStatus == "No Record" ~ 3
     )
     pcr.colors <- tcol[sort(unique(pcr.col.map))]
     #pcr.colors <- tcol[pcr.col.map]
     
     ser.col.map <- case_when(
-      data@data$CaptureELISAStatus == "Detected" ~ 1,
-      data@data$CaptureELISAStatus == "Indeterminate" ~ 2,
-      data@data$CaptureELISAStatus == "Not detected" ~ 4,
-      data@data$CaptureELISAStatus == "No Record" ~ 3
+      data$CaptureELISAStatus == "Detected" ~ 1,
+      data$CaptureELISAStatus == "Indeterminate" ~ 2,
+      data$CaptureELISAStatus == "Not detected" ~ 4,
+      data$CaptureELISAStatus == "No Record" ~ 3
     )
     ser.colors <- tcol[sort(unique(ser.col.map))]
     
-    n.animals <- length(unique(data@data$id))
+    n.animals <- length(unique(data$AnimalID))
     # 
       
       
@@ -221,7 +240,7 @@ makeHomerangeMap <- function(data){
       sex.col <- c("pink","blue")
       celisa.col <- colorRamps::matlab.like(7)
      
-      outmap <- mapview(data, zcol="id", burst=FALSE,legend=TRUE, cex=4,lwd=1, col.regions=id.col,alpha=0.8)+
+      outmap <- mapview(data, zcol="AnimalID", burst=FALSE,legend=TRUE, cex=4,lwd=1, col.regions=id.col,alpha=0.8)+
         mapview(data, zcol="Sex", legend=TRUE, cex=4,lwd=1, col.regions=sex.col,alpha=0.8, hide=TRUE)+
         mapview(data, zcol="CapturePCRStatus", legend=TRUE, cex=4,lwd=1, col.regions=pcr.colors,alpha=0.8, hide=TRUE)+
         mapview(data, zcol="CaptureELISAStatus", legend=TRUE, cex=4,lwd=1, col.regions=ser.colors,alpha=0.8, hide=TRUE)+
@@ -545,3 +564,56 @@ overlapMatrixPlotDownload <- function(intersect.mat){
   image.plot( legend.only=TRUE,zlim=c(0,1), col=colorspace::diverge_hsv(8)) 
 }
 
+# add cluster stats to data frame in sf object
+addClusterStats <- function(h.poly) {
+  
+  # store status as Factor so we can get 0 counts
+  ef <- factor(h.poly$CaptureELISAStatus,levels=c("Detected","Not detected", "Indeterminate"))
+  pf <- factor(h.poly$CapturePCRStatus,levels=c("Detected","Not detected", "Indeterminate"))
+  
+  df <- data.frame(Cluster=h.poly$Cluster,ef=ef,pf=pf)
+  counts <- df %>% group_by(Cluster) %>% summarise(n=n())
+  
+  cElisa.count <- df %>% group_by(Cluster) %>% count(ef,.drop=FALSE)
+  cPCR.count <- df %>% group_by(Cluster) %>% count(pf,.drop=FALSE)
+  
+  clusters <- sort(unique(h.poly$Cluster))
+  nclusters <- length(clusters)
+  cluster.PCR.prev <- c(rep(0,nclusters))
+  cluster.ELISA.prev <- c(rep(0,nclusters))
+  cluster.nMembers <- c(rep(0,nclusters))
+  for (i in 1:nclusters){
+    nde <- cElisa.count %>% filter(Cluster==clusters[i] & ef=="Detected") %>% select(n)
+    ndp <- cPCR.count %>% filter(Cluster==clusters[i] & pf=="Detected") %>% select(n)
+    tot <- counts %>% filter(Cluster==clusters[i]) %>% select(n)
+    cluster.PCR.prev[clusters[i]] <- ndp$n/tot$n
+    cluster.ELISA.prev[clusters[i]] <- nde$n/tot$n
+    cluster.nMembers[clusters[i]] <- tot$n
+  }
+  df2 <- data.frame(cluster=clusters, cluster.PCR.prev,cluster.ELISA.prev, nMembers=cluster.nMembers)
+  
+  h.poly$cluster.PCR.prev <- c(rep(0,nrow(h.poly)))
+  h.poly$cluster.ELISA.prev <- c(rep(0,nrow(h.poly)))
+  h.poly$cluster.mean.cELISA <- c(rep(0,nrow(h.poly)))
+  h.poly$cluster.nMembers <- c(rep(0,nrow(h.poly)))
+  
+  cmean <- h.poly %>% group_by(Cluster) %>% summarise(clus_mean_cElisa=mean(Capture_cELISA,na.rm=TRUE))
+  
+  for (i in 1:nclusters){
+    clus <- clusters[i]
+    ind1 <- which(h.poly$Cluster %in% clus, arr.ind=TRUE)
+    ind2 <- which(df2$cluster %in% clus, arr.ind=TRUE)
+    ind3 <- which(cmean$Cluster %in% clus, arr.ind=TRUE)
+    pcr.value <- df2$cluster.PCR.prev[ind2]
+    el.value <- df2$cluster.ELISA.prev[ind2]
+    m.value <- cmean$clus_mean_cElisa[ind3]
+    n.value <- df2$nMembers[ind2]
+    h.poly$cluster.PCR.prev[ind1] <- c(rep(pcr.value,length(ind1)))
+    h.poly$cluster.ELISA.prev[ind1] <- c(rep(el.value,length(ind1)))
+    h.poly$cluster.mean.cELISA[ind1] <- c(rep(m.value,length(ind1)))
+    h.poly$cluster.nMembers[ind1] <- c(rep(n.value,length(ind1)))
+    
+  }
+  
+  return(h.poly)
+}
