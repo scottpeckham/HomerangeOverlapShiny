@@ -14,17 +14,15 @@ library(visNetwork)
 
 #
 
-source("helpers.R")
+# File with the library of functions built for all this work #
+  source("helpers.R")
+  #source("HomeRange-Functions.R")
 
-# need to handle the CRS for herds yet, current hardcode to OR
+# EPSG CRS for each state
   or.prj <- 26911 # UTM11N NAD83
-  or.crsprj <- CRS("+init=epsg:26911")  
-  wa.crsprj <- CRS("+init=epsg:2285")  # WA state plane north is 2285, south is 2927
   wa.prj <- 2285
-  wgs.crsproj <- CRS("+init=epsg:4326") # CRS used for GPS data files
   wgs.proj <- 4326
   id.prj <- 8826 # Idaho Transverse Mercator
-  id.crsprj <- CRS("+init=epsg:8826") 
 
 # pre-loaded gps data is here #
   load("data/appdata.rda")
@@ -52,8 +50,7 @@ source("helpers.R")
   }
   
 # Convert the dataframe to a spatial object. Note that the
-# crs= 4326 parameter assigns a WGS84 coordinate system to the 
-# spatial object
+# crs= 4326 parameter assigns a WGS84 coordinate system 
   gps.sf <- st_as_sf(gps, coords = c("Longitude", "Latitude"), crs = 4326)
   rm(gps) # free up some memory
   
@@ -68,6 +65,9 @@ ui <- dashboardPage(
           #strong("Idaho, Oregon, Washington"),
           p("Compute home range or UD overlap between all animals in a given herd (BETA). Note: brownian bridge method is computationally intensive, have patience."),
           selectInput("selectHerd", label = "Bighorn Herd:", choices = herds,selected = ""),
+          selectInput('sex', 'Choose gender set', choices = c("All Animals"="all","Females Only"="FEMALE", "Males Only"="MALE"),
+                      selectize = FALSE
+          ),  
           selectInput("selectKernel", label = "Kernel Function:", choices = c("Bivariate Normal","Brownian Bridge"),
                       selected = "Bivariate Normal"),
           sliderInput("contour.perc", label = "Contour percentage:", min = 0, 
@@ -192,7 +192,9 @@ server <- function(input, output) {
     t1 <- as.POSIXct(input$dates[1],tz="UTC")
     t2 <- as.POSIXct(input$dates[2],tz="UTC")
     outdata <- subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2) %>% filter(Herd %in% input$selectHerd)
-    
+    if (input$sex=='all') outdata <- outdata else {
+      outdata <- outdata %>% filter(Sex==input$sex)
+    }
   })
   
   analysisHR <- eventReactive(input$runAnalysis,{
@@ -205,16 +207,12 @@ server <- function(input, output) {
            "Cleman Mountain" = wa.prj,
            "Lower Salmon" = id.prj,
            "Lower Panther Main Salmon" = id.prj)
-    crs.projection <- switch(input$selectHerd,
-                             "Burnt River"= or.crsprj, "Lookout Mountain" = or.crsprj, "Lostine"= or.crsprj,
-                             "Yakima Canyon" = wa.crsprj, "Cleman Mountain" = wa.crsprj,
-                             "Lower Salmon" = id.crsprj,
-                             "Lower Panther Main Salmon" = id.crsprj)
+    
     
     withProgress(message = paste("Computing:", input$selectHerd, " over ",input$dates[1], " to ", input$dates[2]), 
                  value = .25, {
     # compute homeranges
-      #homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
+      
       if (input$selectKernel == "Bivariate Normal") {
         homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
        }
