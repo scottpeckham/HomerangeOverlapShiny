@@ -11,12 +11,15 @@ library(leaflet)
 library(dplyr)
 library(DT)
 library(visNetwork)
+library(stringr)
 
 #
 
 # File with the library of functions built for all this work #
-  source("helpers.R")
+  #source("helpers.R")
   #source("HomeRange-Functions.R")
+  source("/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/RCode/Functions/HomeRange-Functions.R")
+  source("download-helpers.R")
 
 # EPSG CRS for each state
   or.prj <- 26911 # UTM11N NAD83
@@ -89,17 +92,21 @@ ui <- dashboardPage(
     
     tabsetPanel(type = "tabs",
                 
-                tabPanel("Home Ranges", leafletOutput("homemap",width="95%",height=800)),
-                tabPanel("GPS Locations", leafletOutput("gpsmap",width="95%",height=800)),
+                tabPanel("Overview Map", leafletOutput("map",width="95%",height=800),
+                         textOutput("gpkg_file")),
+                tabPanel("Cluster Map", downloadButton("downloadClusterMap", "Save Map to HTML") ,
+                         leafletOutput("clusmap",width="95%",height=800)
+                ),
                 tabPanel("Overlap Matrix", plotlyOutput("plot", width="85%",height=800),
                          downloadButton("downloadPlot", "Download")),
-                tabPanel("Overlap Network", textOutput("networklabel"),visNetworkOutput("networkplot", width="85%",height=800),
+                tabPanel("Overlap Network", textOutput("networklabel"),
+                         visNetworkOutput("networkplot", width="85%",height=800),
                          downloadButton("downloadNetworkPlot", "Download Plot")),
-                tabPanel("Overlap Dendrogram", plotOutput("clusterdend", width="85%",height=800),
+                tabPanel("Overlap Dendrogram",
                          downloadButton("downloadDendPlot", "Download Plot"),
-                         downloadButton("downloadClusterData", "Download Data")),
-                tabPanel("Data Table", DT::dataTableOutput("datatable"),
-                         downloadButton("downloadTableData", "Download")),
+                         downloadButton("downloadClusterData", "Download Cluster Data"),
+                         downloadButton("downloadOverlapData", "Download Overlap Data"),
+                         plotOutput("clusterdend", width="85%",height=800)),
                 tabPanel("Tool-Info",
                          #img(src = "IMG_0368.JPG", height = 300, width = 450),
                          br(),
@@ -162,31 +169,11 @@ server <- function(input, output) {
   inputHerd <- reactive({
     input$selectHerd
   })
-  # # determine appropriate projected coord system for function input#
-  # getMapProj <- reactive({
-  #   switch(input$selectHerd,
-  #   "Burnt River"=or.prj,
-  #   "Lookout Mountain" =or.prj,
-  #   "Yakima Canyon" = wa.prj,
-  #   "Cleman Mountain" = wa.prj)
-  # 
-  # })
   
-  # # reactive GPS table
-  # gpstableInput <- reactive({
-  #   t1 <- as.POSIXct(input$dates[1],tz="UTC")
-  #   t2 <- as.POSIXct(input$dates[2],tz="UTC")
-  #   switch(input$dataSelect, 
-  #          "all" = gps.sf,
-  #          "drange" = subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2)) %>% filter(Herd %in% inputHerd())
-  # })
   
   # execute when action button is clicked #
   # #########--------------------------------------
   # 
-  observeEvent(input$runAnalysis, {
-    cat("Computing home ranges for:", input$selectHerd, " for ",input$dates[1], " to ", input$dates[2])
-  })
   
   getData <- eventReactive(input$runAnalysis, {
     t1 <- as.POSIXct(input$dates[1],tz="UTC")
@@ -197,8 +184,8 @@ server <- function(input, output) {
     }
   })
   
-  analysisHR <- eventReactive(input$runAnalysis,{
-    
+  analysisHR <- observeEvent(input$runAnalysis,{
+    cat("Computing home ranges for:", input$selectHerd, " for ",input$dates[1], " to ", input$dates[2])
     output.proj <-switch(input$selectHerd,
            "Burnt River"=or.prj,
            "Lookout Mountain" = or.prj,
@@ -210,211 +197,180 @@ server <- function(input, output) {
     
     
     withProgress(message = paste("Computing:", input$selectHerd, " over ",input$dates[1], " to ", input$dates[2]), 
-                 value = .25, {
+                 value = .05, {
     # compute homeranges
-      
+      incProgress(0.25, detail = "Estimating animal home ranges...")
       if (input$selectKernel == "Bivariate Normal") {
-        homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
+        homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, 
+                                                          output.proj=output.proj,output.UD=FALSE))
        }
       if (input$selectKernel == "Brownian Bridge"){
-        homeranges <- suppressWarnings(calculateBBHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, output.proj=output.proj))
+        homeranges <- suppressWarnings(calculateBBHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, 
+                                                            output.proj=output.proj,output.UD=TRUE))
       } 
       
       
       
     # Increment the progress bar, and update the detail text.
-      incProgress(0.75, detail = "Computing overlap of home ranges...")
+      incProgress(0.75, detail = "Computing overlap of home ranges or UD ...")
       if (input$selectMetric=="Area overlap"){
-      overlap <- suppressWarnings(calculateHomerangeOverlap(homeranges$homeranges))
+      overlap <- suppressWarnings(calculateHomerangeOverlap(homeranges))
       }
       if (input$selectMetric=="UD volume"){
         overlap <- kerneloverlaphr(homeranges$ud, method = "PHR",
                         percent = input$contour.perc)
         overlap[row(overlap) == col(overlap)] <- NA   # the overlap function returns 1 on diagonal, NA is better for display
                                                       # doesn't affect calculation because I ignore diagonal in the igraph calls
+        homeranges <- homeranges$homeranges # reassign the polygons to this variable for use in mapping
       }
     
+      # Make a community and cluster analysis
+      community <- getClusterCommunity(overlap)
       
-    })
+      # Data frame of clusters and IDS
+      df <- getClusterDataFrame(community$cluster)
+      clusters <- sort(unique(df$Cluster))
+      members <- c(rep("",length(clusters)))
+      for (i in 1:length(clusters)){
+        membs <- df$AnimalID[df$Cluster==clusters[i]]
+        members[i] <- str_flatten(membs,collapse=", ")
+      }
     
-    return(
-      list(
-        homeranges=homeranges$homeranges,
-        overlap=overlap
-      )
+      # Add cluster column to home range polys 
+      homeranges$Cluster <- df$Cluster[which(homeranges$AnimalID %in% df$AnimalID,arr.ind=TRUE)]
+      
+      
+      # Add cluster stats to homeranges
+      incProgress(0.75,"Computing community and cluster stats")
+      homeranges <- suppressWarnings(addClusterStats(homeranges))
+      
+      clus.colors <- brewer.pal(12,'Paired')    
+      map.clus.colors <- clus.colors[1:length(clusters)]
+      
+      # Render the plots and tables 
+      # qualitative pallette for Animals
+      incProgress(0.95,"Rendering Plots")
+      
+      # color pallettes 
+      qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+      col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+      idcolors <- sample(col_vector, length(homeranges$AnimalID),replace=TRUE)
+      
+      
+      output$map <- renderLeaflet({
+        
+        makeHomerangeMap(homeranges, idcolors) + makeGPSMap(getData(),zcol="AnimalID",idcolors,alpha=0.75)
+        
+      })
+      
+      # Dendrogram
+      #dend <- overlapClusterDend(community)
+      output$clusterdend <- renderPlot({
+        overlapClusterDend(community)
+      })
+      
+      # Unified map 
+      output$clusmap <- renderLeaflet({
+        
+        m <- mapview(homeranges,zcol="AnimalID",col.regions=idcolors,alpha.regions=0.75)+
+          mapview(homeranges, zcol="Cluster", legend=TRUE, cex=2,lwd=1, col.regions=map.clus.colors,alpha.regions=0.8)+
+          mapview(homeranges,zcol="cluster.mean.cELISA")+
+          mapview(homeranges,zcol="cluster.ELISA.prev")+
+          mapview(homeranges,zcol="cluster.PCR.prev")
+        m@map
+      })
+      
+      # Network plot
+      output$networkplot <- renderVisNetwork({
+        attributeNetworkPlot(community, display="Both", homeranges)
+      })
+      
+      
+      # Matrix plot
+      output$plot <- renderPlotly({
+        overlapImagePlot(overlap)
+      })
+      
+      incProgress(1,message="Complete")
+     }) #end with progress bar
+    
+    # Download handlers
+    print(paste("Starting plots"))
+    # Downloadable network plot ----
+    output$downloadNetworkPlot <- downloadHandler(
+      filename = function() {
+        paste(input$selectHerd, "_CommunityNetworkPlot.pdf", sep = "")
+      },
+      content = function(file) {
+        pdf(file,width=12,height=10)
+        overlapNetworkPlotOutput(community, display="Both", homeranges)
+        dev.off()
+      },
+      contentType = "application/pdf"
     )
-  })
     
-  overlapHR <- eventReactive(input$runAnalysis, {
-    # compute overlap
-    calculateHomerangeOverlap(analysisHR())
-  })  
-  
-  overlapPlot <- function(){
-    .tmp <-analysisHR()
-    ov <- .tmp$overlap
-    overlapImagePlot(ov)
-  }
-  
-  MatrixPlotDownload <- function(){
-    .tmp <-analysisHR()
-    ov <- .tmp$overlap
-    overlapMatrixPlotDownload(ov)
-  }
-  
-  # ClusterPlot <- reactive({
-  #   .tmp <-analysisHR()
-  #   ov <- .tmp$overlap
-  #   overlapClusterPlot(ov)
-  # })
-  ClusterDend <- function(){
-    .tmp <-analysisHR()
-    ov <- .tmp$overlap
-    suppressWarnings(overlapClusterDend(ov))
-  }
-  
-  NetworkPlot <- function(){
-    .tmp <-analysisHR()
-    ov <- .tmp$overlap
-    suppressWarnings(overlapNetworkPlot(ov,gps.sf))
-  }
- 
-  NetworkPlotDownload <- function(){
-    .tmp <-analysisHR()
-    ov <- .tmp$overlap
-    suppressWarnings(overlapNetworkPlotOutput(ov,gps.sf))
-  }
-  
-  ClusterData <- reactive({
-    .tmp <-analysisHR()
-    ov <- .tmp$overlap
-    suppressWarnings(getClusterData(ov))
-  })
-  
-  overlapTable <- reactive({
-    .tmp <- analysisHR()
-    .tmp$overlap
-  })
-  
-  output$gpsmap <- renderLeaflet({
-    mindate <- as.POSIXct(input$dates[1],tz="UTC")
-    maxdate <- as.POSIXct(input$dates[2],tz="UTC")
-    zcol <- "AnimalID"
-    plotdata <- getData()
-    n.animals <- length(unique(plotdata$AnimalID))
-    n.herd <- length(unique(plotdata$Herd))
-
-    #mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(n.animals)
-    #
-    qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-    col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-    if(n.animals > length(col_vector)) mycolors <- sample(col_vector, n.animals, replace=TRUE) else mycolors <- sample(col_vector, n.animals)
-    makeGPSMap(plotdata, zcol=zcol,colors=mycolors,alpha=0.8)
-  })
-  
-  output$homemap <- renderLeaflet({
-    .tmp <-analysisHR()
-    homeR <- .tmp$homeranges
+    # Downloadable cluster dendrogram ----
+    output$downloadDendPlot <- downloadHandler(
+      filename = function() {
+        paste(input$selectHerd, "_ClusterDendrogram.pdf", sep = "")
+      },
+      content = function(file) {
+        pdf(file,width=12,height=10)
+        overlapClusterDend(community)
+        dev.off()
+      },
+      contentType = "application/pdf"
+    )
     
-    #mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(length(homeR$id))
-    # qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
-    # col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-    # mycolors <- sample(col_vector, length(homeR$id))
-    # makeHomerangeMap(homeR,zcol="id",colors=mycolors,alpha=0.8)
+    # Downloadable csv of clusters ----
+    output$downloadClusterData <- downloadHandler(
+      filename = function() {
+        paste(input$selectHerd,"_HomerangeOverlapClusters.csv", sep = "")
+      },
+      content = function(file) {
+        write.csv(getClusterData(community), file, row.names = TRUE)
+      }
+    )
     
-    makeHomerangeMap(homeR)
+    # Downloadable csv of selected table dataset ----
+    output$downloadOverlapData <- downloadHandler(
+      filename = function() {
+        paste(input$selectHerd,"_HomerangeOverlapTable.csv", sep = "")
+      },
+      content = function(file) {
+        write.csv(as.data.frame(overlap), file, row.names = TRUE)
+      }
+    )
     
-  })
-  
-  output$plot <- renderPlotly({
-    overlapPlot()
-  })
-  
-  output$clusterdend <- renderPlot({
-    ClusterDend()
-  })
-
-  output$networklabel <- renderText({
-    "In the network plot below, PCR status at capture is denoted by node shape, where 'detected' is an octagon, 
-     'indeterminate' a triangle, 'not detected' a circle. ELISA status at capture is denoted by text color where red 
-    is 'detected', yellow is 'indeterminate' and green is 'not detected'. The fill color corresponds to cluster membership, matching the dendrogram in the previous tab."
+    # Downloadable interactive map using mapshot ----
+    output$downloadClusterMap <- downloadHandler(
+      filename = function() {
+        paste(input$selectHerd,"_ClusterMap.html", sep = "")
+      },
+      content = function(file) {
+        mapshot(ClusterMapview(homeranges,idcolors,map.clus.colors), url=file)
+      }
+    )
     
-    })
-  
-  # output$networkplot <- renderPlot({
-  #   NetworkPlot()
-  # })
-  output$networkplot <- renderVisNetwork({
-    NetworkPlot()
-  })
-  
-  
-  # render table using DT to allow scroll
-  output$datatable <- DT::renderDataTable({
-    .tmp <-analysisHR()
-    DT::datatable(format(as.data.frame(.tmp$overlap),digits=2),options = list(
-      pageLength=25, scrollX='400px'), filter = 'top')
-  })
+    # Downloadable matrix overlap plot ----
+    output$downloadPlot <- downloadHandler(
+      filename = function() {
+        paste(input$selectHerd, "_OverlapMatrixPlot.pdf", sep = "")
+      }, 
+      content = function(file,width=13,height=10) {
+        pdf(file)
+        overlapMatrixPlotDownload(overlap)
+        dev.off()
+      },
+      contentType = "application/pdf"
+    )
     
-  # Downloadable matrix overlap plot ----
-  output$downloadPlot <- downloadHandler(
-    filename = function() {
-      paste(input$selectHerd, "_OverlapMatrixPlot.pdf", sep = "")
-    }, 
-    content = function(file,width=13,height=10) {
-      pdf(file)
-      MatrixPlotDownload()
-      dev.off()
-    },
-    contentType = "application/pdf"
-  )
+  }) # end observeEvent for analysis
+    
   
-  # Downloadable network plot ----
-  output$downloadNetworkPlot <- downloadHandler(
-    filename = function() {
-      paste(input$selectHerd, "_CommunityNetworkPlot.pdf", sep = "")
-    },
-    content = function(file) {
-      pdf(file,width=12,height=10)
-      NetworkPlotDownload()
-      dev.off()
-    },
-    contentType = "application/pdf"
-  )
-  
-  # Downloadable cluster plot ----
-  output$downloadDendPlot <- downloadHandler(
-    filename = function() {
-      paste(input$selectHerd, "_ClusterDendrogram.pdf", sep = "")
-    },
-    content = function(file) {
-      pdf(file,width=12,height=10)
-      ClusterDend()
-      dev.off()
-    },
-    contentType = "application/pdf"
-  )
-
-  # Downloadable csv of clusters ----
-  output$downloadClusterData <- downloadHandler(
-    filename = function() {
-      paste(input$selectHerd,"HomerangeOverlapClusters.csv", sep = "")
-    },
-    content = function(file) {
-      write.csv(ClusterData(), file, row.names = TRUE)
-    }
-  )
-  
-  # Downloadable csv of selected table dataset ----
-  output$downloadTableData <- downloadHandler(
-    filename = function() {
-      paste(input$selectHerd,"HomerangeOverlapTable.csv", sep = "")
-    },
-    content = function(file) {
-      write.csv(overlapTable(), file, row.names = TRUE)
-    }
-  )
  
 }
 
 shinyApp(ui, server,options = list(launch.browser = TRUE))
+
+
