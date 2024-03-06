@@ -259,7 +259,7 @@ server <- function(input, output) {
       
       output$map <- renderLeaflet({
         
-        makeHomerangeMap(homeranges, idcolors) + makeGPSMap(getData(),zcol="AnimalID",idcolors,alpha=0.75)
+        makeOverviewMap(homeranges, getData(),idcolors) #+ makeGPSMap(getData(),zcol="AnimalID",idcolors,alpha=0.75)
         
       })
       
