@@ -12,11 +12,15 @@ library(dplyr)
 library(DT)
 library(visNetwork)
 library(stringr)
+library(shinyFiles)
 
 #
 
+# Table Name in DB for GPS data #
+gps.tab.name <- "AnimalID_GPS"
+
 # File with the library of functions built for all this work #
-  #source("helpers.R")
+  
   #source("HomeRange-Functions.R")
   source("/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/RCode/Functions/HomeRange-Functions.R")
   source("download-helpers.R")
@@ -27,37 +31,6 @@ library(stringr)
   wgs.proj <- 4326
   id.prj <- 8826 # Idaho Transverse Mercator
 
-# pre-loaded gps data is here #
-  load("data/appdata.rda")
-
-# go ahead and add bio year to gps table #
-  gps <- addBioYear(gps)
- 
-  # LPMS has a weirdo point so we screen out anything east of lon -113
-  # Lostine has 12LO27 the famous wanderer that has no GPS location in Lostine but was marked as a lamb there, will cause errors
-    gps <- gps %>% filter(Longitude < -113.0 & AnimalID != "12LO27")
-  
-  
-# determine some bookends from the data #
-  #   these will be needed to modify the button options
-  herds <- unique(gps$Herd)
-  avail.dates <- gps %>% group_by(Herd) %>% summarise(MinDate=min(acquisitiontime),MaxDate=max(acquisitiontime))
-  avail.dates$MinDate <- strftime(avail.dates$MinDate, format="%Y-%m-%d", tz="UTC")
-  avail.dates$MaxDate <- strftime(avail.dates$MaxDate, format="%Y-%m-%d", tz="UTC")
-  
-  herd.bioyear.list <- vector(mode="list", length=length(herds))
-  names(herd.bioyear.list) <- herds
-  for (i in 1:length(herds)) {
-    list.name <- herds[i]
-    herd.bioyear.list[[list.name]] <- subset(gps,Herd==list.name,select=BioYear) %>% unique()
-  }
-  
-# Convert the dataframe to a spatial object. Note that the
-# crs= 4326 parameter assigns a WGS84 coordinate system 
-  gps.sf <- st_as_sf(gps, coords = c("Longitude", "Latitude"), crs = 4326)
-  rm(gps) # free up some memory
-  
-
 
   
 ui <- dashboardPage(
@@ -67,7 +40,11 @@ ui <- dashboardPage(
           img(src = "IMG_0368.JPG", height = 150, width = 200),
           #strong("Idaho, Oregon, Washington"),
           p("Compute home range or UD overlap between all animals in a given herd (BETA). Note: brownian bridge method is computationally intensive, have patience."),
-          selectInput("selectHerd", label = "Bighorn Herd:", choices = herds,selected = ""),
+          shinyFilesButton("Btn_GetFile", "Choose SQLite database file" ,
+                           title = "Please select a file:", multiple = FALSE,
+                           buttonType = "default", class = NULL),
+          selectInput("selectHerd", label = "Bighorn Herd:", choices = "",selected = ""),
+          
           selectInput('sex', 'Choose gender set', choices = c("All Animals"="all","Females Only"="FEMALE", "Males Only"="MALE"),
                       selectize = FALSE
           ),  
@@ -113,7 +90,7 @@ ui <- dashboardPage(
                          hr(),
                          h4(strong("Tool Description")),
                          p(style="text-align: justify; font-size = 25px",
-                           "This application will first compute home ranges for every GPS-collared animal in the selected herd using the 'adehabitatHR' package and either a bivariate normal or brownian bridge kernel function. Then, the amount of overlap between each animal (area or UD) is calculated and stored in a NxN matrix. The kernel functionand contour level used to 
+                           "This application will first compute home ranges for every GPS-collared animal in the selected herd using the 'adehabitatHR' package and either a bivariate normal or brownian bridge kernel function. Then, the amount of overlap between each animal (area or UD) is calculated and stored in a NxN matrix. The kernel function and contour level used to 
     compute the home range from the utilization distribution are user-configurable using the inputs on the left. The first tab contains a map of the computed home ranges. The polygons are also attributed with some of the capture and health testing results by individual. 
     
     In the next tab, we plot the NxN matrix that contains the fraction of each animals home range (by row in the matrix) 
@@ -149,25 +126,93 @@ ui <- dashboardPage(
   )
 )
 
-server <- function(input, output) {
+server <- function(input, output, session) {
+  
+  volumes = getVolumes()
+  
+  fileval <- reactive({
+    l <- parseFilePaths(volumes, input$Btn_GetFile)
+    as.character(l$datapath)
+  })
+  
+  observe({  
+    shinyFileChoose(input, "Btn_GetFile", roots = volumes, session = session)
+    
+    if(!is.null(input$Btn_GetFile)){
+      # browser()
+      
+      output$db_file <- renderText(fileval())
+      
+      
+    }
+  })
+  
+  # when we choose the DB file, populate some tables for menu items
+  observeEvent(fileval(), {
+    nfile <- fileval()
+    if (length(nfile)>0) {
+      
+      if (file.exists(nfile)) {
+      
+        # Connect to the data base read GPS table we need #
+        con <- dbConnect(RSQLite::SQLite(),fileval(), extended_types=TRUE)
+        
+        # query for gps, don't read into memory
+        gps_db <- tbl(con, gps.tab.name) # reference to the table
+        
+        herds <- gps_db %>% select(Herd) %>% collect()
+        herds <- unique(herds)
+        
+        # close out DB connection
+        dbDisconnect(con)
+        
+        # upadte the list input(s)  
+        updateSelectInput(inputId = "selectHerd", choices = herds)
+      }
+    }
+  })
   
   # first deal with the reactive UI issue (i.e. we don't know number of years or dates)
   output$subsetSelect <- renderUI({
     
-    #if (input$dataSelect == "drange"){
-      mind=unlist(c(avail.dates[which(input$selectHerd %in% avail.dates$Herd),2]))
-      maxd=unlist(c(avail.dates[which(input$selectHerd %in% avail.dates$Herd),3]))
-      dateRangeInput("dates",label="Date Range for home range computation:",
-                     start  = "2023-01-01",
-                     end    = "2023-03-31",
-                     min=mind,
-                     max=maxd)
-    #}
+    # if we've chosen our DB file and herd then do this
+    nfile <- fileval()
+    herd <- inputHerd()
+    if (length(nfile)>0 & herd != "") {
+      
+        # query DB for data #
+        
+        # Connect to the data base read GPS table we need #
+        con <- dbConnect(RSQLite::SQLite(),fileval(), extended_types=TRUE)
+        
+        dbpath <- "/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/Databases/BHS_TriState.db"
+        con <- dbConnect(RSQLite::SQLite(),dbpath, extended_types=TRUE)
+        
+        # query for gps, don't read into memory
+        gps_db <- tbl(con, gps.tab.name) # reference to the table
+        
+        herd <- input$selectHerd
+        
+        avail.dates <- gps_db %>% filter(Herd==herd) %>% summarise(MinDate=min(acquisitiontime),MaxDate=max(acquisitiontime)) %>% collect()
+        avail.dates$MinDate <- strftime(avail.dates$MinDate, format="%Y-%m-%d", tz="UTC")
+        avail.dates$MaxDate <- strftime(avail.dates$MaxDate, format="%Y-%m-%d", tz="UTC")
+        
+        # close out DB connection
+        dbDisconnect(con)
+        
+          
+        dateRangeInput("dates",label="Date Range for home range computation:",
+                         start  = "2024-01-01",
+                         end    = "2024-03-31",
+                         min=avail.dates$MinDate[1],
+                         max=avail.dates$MaxDate[1])
+    }
     
   })
   
   inputHerd <- reactive({
     input$selectHerd
+    
   })
   
   
@@ -176,12 +221,44 @@ server <- function(input, output) {
   # 
   
   getData <- eventReactive(input$runAnalysis, {
+    # query DB for data #
+    gps.tab.name <- "AnimalID_GPS"
     t1 <- as.POSIXct(input$dates[1],tz="UTC")
     t2 <- as.POSIXct(input$dates[2],tz="UTC")
-    outdata <- subset(gps.sf, acquisitiontime>= t1 & acquisitiontime <= t2) %>% filter(Herd %in% input$selectHerd)
-    if (input$sex=='all') outdata <- outdata else {
-      outdata <- outdata %>% filter(Sex==input$sex)
-    }
+    
+    # Connect to the data base read GPS table we need #
+    con <- dbConnect(RSQLite::SQLite(),fileval(), extended_types=TRUE)
+    
+    # query for gps, don't read into memory
+    gps_db <- tbl(con, gps.tab.name) # reference to the table
+    
+    # query and store in data frame
+    gps <- gps_db %>% filter(Herd==input$selectHerd & Sex==input$sex) %>% 
+      filter(acquisitiontime>= t1 & acquisitiontime <= t2) %>% collect()
+    
+    # close out DB connection
+    dbDisconnect(con)
+    
+    # remove missing values 
+    gps <- removeMissingGPS(gps)
+    
+    # DEAL WITH THE WEIRD CASES THAT CRASH HOME RANG CALCS
+      # Screen off any spurious Lat/Lon values that can crash HR calcs (there was one in MT for LPMS that bombed everything #
+      gps <- gps %>% filter(Latitude > 43.5 & Latitude < 47.5 & Longitude > -121.5 & Longitude < -113)
+      
+      # LPMS has a weirdo point so we screen out anything east of lon -113
+      gps <- gps %>% filter(Longitude < -113.0)
+      
+      # LS has a weirdo point so we screen out anything east of lon -113
+      gps <- gps %>% filter(!(AnimalID == "20LS49" & Latitude < 44.4))
+      
+    # remove duplicates if there are any
+    gps <- distinct(gps)
+    
+    # crs= 4326 parameter assigns a WGS84 coordinate system 
+    st_as_sf(gps, coords = c("Longitude", "Latitude"), crs = 4326)
+    
+    
   })
   
   analysisHR <- observeEvent(input$runAnalysis,{
@@ -196,32 +273,37 @@ server <- function(input, output) {
            "Lower Panther Main Salmon" = id.prj)
     
     
+      
     withProgress(message = paste("Computing:", input$selectHerd, " over ",input$dates[1], " to ", input$dates[2]), 
                  value = .05, {
     # compute homeranges
       incProgress(0.25, detail = "Estimating animal home ranges...")
       if (input$selectKernel == "Bivariate Normal") {
-        homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, 
-                                                          output.proj=output.proj,output.UD=FALSE))
+        homeranges <- suppressWarnings(calculateHomerange(getData(),min.fixes=30, grid=400, extent=1.1,
+                                                          contour.percent=input$contour.perc, 
+                                                          output.proj=output.proj,output.UD=TRUE))
        }
       if (input$selectKernel == "Brownian Bridge"){
-        homeranges <- suppressWarnings(calculateBBHomerange(getData(),min.fixes=30,contour.percent=input$contour.perc, 
+        homeranges <- suppressWarnings(calculateBBHomerange(getData(),min.fixes=30,grid=400, extent=1.1,
+                                                            contour.percent=input$contour.perc, 
                                                             output.proj=output.proj,output.UD=TRUE))
       } 
       
-      
+     # output is a list item, for clarity we'll unlist and delete it
+      hr <- homeranges$homeranges
+      ud <- homeranges$ud
+      rm(homeranges)
       
     # Increment the progress bar, and update the detail text.
       incProgress(0.75, detail = "Computing overlap of home ranges or UD ...")
       if (input$selectMetric=="Area overlap"){
-      overlap <- suppressWarnings(calculateHomerangeOverlap(homeranges))
+      overlap <- suppressWarnings(calculateHomerangeOverlap(hr))
       }
       if (input$selectMetric=="UD volume"){
-        overlap <- kerneloverlaphr(homeranges$ud, method = "PHR",
+        overlap <- kerneloverlaphr(ud, method = "PHR",
                         percent = input$contour.perc)
         overlap[row(overlap) == col(overlap)] <- NA   # the overlap function returns 1 on diagonal, NA is better for display
                                                       # doesn't affect calculation because I ignore diagonal in the igraph calls
-        homeranges <- homeranges$homeranges # reassign the polygons to this variable for use in mapping
       }
     
       # Make a community and cluster analysis
@@ -237,12 +319,12 @@ server <- function(input, output) {
       }
     
       # Add cluster column to home range polys 
-      homeranges$Cluster <- df$Cluster[which(homeranges$AnimalID %in% df$AnimalID,arr.ind=TRUE)]
+      hr$Cluster <- df$Cluster[which(hr$AnimalID %in% df$AnimalID,arr.ind=TRUE)]
       
       
       # Add cluster stats to homeranges
       incProgress(0.75,"Computing community and cluster stats")
-      homeranges <- suppressWarnings(addClusterStats(homeranges))
+      hr <- suppressWarnings(addClusterStats(hr))
       
       clus.colors <- brewer.pal(12,'Paired')    
       map.clus.colors <- clus.colors[1:length(clusters)]
@@ -254,12 +336,12 @@ server <- function(input, output) {
       # color pallettes 
       qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
       col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
-      idcolors <- sample(col_vector, length(homeranges$AnimalID),replace=TRUE)
+      idcolors <- sample(col_vector, length(hr$AnimalID),replace=TRUE)
       
       
       output$map <- renderLeaflet({
         
-        makeOverviewMap(homeranges, getData(),idcolors) #+ makeGPSMap(getData(),zcol="AnimalID",idcolors,alpha=0.75)
+        makeOverviewMap(hr, getData(),idcolors) #+ makeGPSMap(getData(),zcol="AnimalID",idcolors,alpha=0.75)
         
       })
       
@@ -272,17 +354,17 @@ server <- function(input, output) {
       # Unified map 
       output$clusmap <- renderLeaflet({
         
-        m <- mapview(homeranges,zcol="AnimalID",col.regions=idcolors,alpha.regions=0.75)+
-          mapview(homeranges, zcol="Cluster", legend=TRUE, cex=2,lwd=1, col.regions=map.clus.colors,alpha.regions=0.8)+
-          mapview(homeranges,zcol="cluster.mean.cELISA")+
-          mapview(homeranges,zcol="cluster.ELISA.prev")+
-          mapview(homeranges,zcol="cluster.PCR.prev")
+        m <- mapview(hr,zcol="AnimalID",col.regions=idcolors,alpha.regions=0.75)+
+          mapview(hr, zcol="Cluster", legend=TRUE, cex=2,lwd=1, col.regions=map.clus.colors,alpha.regions=0.8)+
+          mapview(hr,zcol="cluster.mean.cELISA")+
+          mapview(hr,zcol="cluster.ELISA.prev")+
+          mapview(hr,zcol="cluster.PCR.prev")
         m@map
       })
       
       # Network plot
       output$networkplot <- renderVisNetwork({
-        attributeNetworkPlot(community, display="Both", homeranges)
+        attributeNetworkPlot(community, display="Both", hr)
       })
       
       
@@ -303,7 +385,7 @@ server <- function(input, output) {
       },
       content = function(file) {
         pdf(file,width=12,height=10)
-        overlapNetworkPlotOutput(community, display="Both", homeranges)
+        overlapNetworkPlotOutput(community, display="Both", hr)
         dev.off()
       },
       contentType = "application/pdf"
@@ -348,7 +430,7 @@ server <- function(input, output) {
         paste(input$selectHerd,"_ClusterMap.html", sep = "")
       },
       content = function(file) {
-        mapshot(ClusterMapview(homeranges,idcolors,map.clus.colors), url=file)
+        mapshot(ClusterMapview(hr,idcolors,map.clus.colors), url=file)
       }
     )
     

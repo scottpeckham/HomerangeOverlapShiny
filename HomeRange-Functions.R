@@ -17,6 +17,8 @@ library(igraph)
 library(heatmaply)
 library(dendextend)
 library(visNetwork)
+library(sfdep)
+
 # required packages #
 
 # Calculate a biological year vector from a date vector
@@ -36,7 +38,7 @@ library(visNetwork)
 
 # For inside the BB home range function
   foo <- function(dt){
-    return(dt> (14*3600*24))
+    return(dt> (7*3600*24))
     }
 # Calculate Animal home range using the standard href kernel 
 #
@@ -59,11 +61,14 @@ calculateHomerange <- function(gps, min.fixes, output.proj, contour.percent=95, 
     stop("first argument has to be a spatial object ")
   
   # check number of locations per animal, adehabitat requires >5/per
-  loc.per.animal <- gps %>% group_by(AnimalID) %>%
+  loc.per.animal <- gps %>% st_drop_geometry() %>% group_by(AnimalID) %>%
     summarize(Fix_count =  n())
   drops <- which(loc.per.animal$Fix_count < min.fixes,arr.ind=TRUE)
   excludes <- loc.per.animal$AnimalID[drops]
-  if (length(drops)>0) gps <- gps[!gps$AnimalID %in% excludes,]
+  if (length(drops)>0) {
+    gps <- gps[!gps$AnimalID %in% excludes,]
+    print(paste("Excluded",length(drops),"animals with fix count <",min.fixes))
+  }
   
   # create a table that holds attributes for each animal (to add back to polygons)
   att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),] %>% as.data.frame()
@@ -98,18 +103,18 @@ calculateHomerange <- function(gps, min.fixes, output.proj, contour.percent=95, 
   newtable <- left_join(homeranges@data,att.table,join_by(id == AnimalID))
   homeranges@data <- newtable
   
-  homeranges <- st_as_sf(homeranges)   # convert to sf, for some reason the BB homeranges CRS are screwed up by adehabitat, 
-  st_crs(homeranges) <- output.proj
+  homeranges.out <- st_as_sf(homeranges)   # convert to sf, for some reason the BB homeranges CRS are screwed up by adehabitat, 
+  st_crs(homeranges.out) <- output.proj
   
   # Restore column name
-  names(homeranges)[1] <- "AnimalID"
+  names(homeranges.out)[1] <- "AnimalID"
   
-  nanimals <- nrow(homeranges)
+  nanimals <- nrow(homeranges.out)
   print(paste("Number of animals: ",nanimals))
   
   # construct output (to keep things simple limiting to either polygon or UD)
-  if (output.UD) output <- list(homeranges=homeranges,ud=kud)
-  else output <- homeranges
+  if (output.UD) output <- list(homeranges=homeranges.out,ud=kud)
+  else output <- homeranges.out
   
   
   return(output)
@@ -137,11 +142,14 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   
   # check number of locations per animal, adehabitat requires >5/per
   #   and exclude any with < min.fixes
-  loc.per.animal <- gps %>% group_by(AnimalID) %>%
+  loc.per.animal <- gps %>% st_drop_geometry() %>% group_by(AnimalID) %>%
     summarize(Fix_count =  n())
   drops <- which(loc.per.animal$Fix_count < min.fixes,arr.ind=TRUE)
   excludes <- loc.per.animal$AnimalID[drops]
-  if (length(drops)>0) gps <- gps[!gps$AnimalID %in% excludes,]
+  if (length(drops)>0) {
+    gps <- gps[!gps$AnimalID %in% excludes,]
+    print(paste("Excluded",length(drops),"animals with fix count <",min.fixes))
+  }
   
   # order the data
   gps <- arrange(gps, AnimalID, acquisitiontime)
@@ -208,15 +216,15 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   newtable <- left_join(homerange_bb@data,att.table,join_by(id == AnimalID))
   homerange_bb@data <- newtable
   
-  homerange_bb <- st_as_sf(homerange_bb)   # for some reason the BB homeranges CRS are screwed up by adehabitat
-  st_crs(homerange_bb) <- output.proj
+  homerange_bb.out <- st_as_sf(homerange_bb)   # for some reason the BB homeranges CRS are screwed up by adehabitat
+  st_crs(homerange_bb.out) <- output.proj
   
   # Restore column name
-  names(homerange_bb)[1] <- "AnimalID"
+  names(homerange_bb.out)[1] <- "AnimalID"
   
-  # construct output (to keep things simple limiting to either polygon or UD)
-  if (output.UD) output <- list(homeranges=homerange_bb, ud=kud.bb)
-  else output <- homerange_bb
+  # construct output (if UD=TRUE we'll output a list ojecte, if FALSE (default) output is sf polygons)
+  if (output.UD) output <- list(homeranges=homerange_bb.out, ud=kud.bb)
+  else output <- homerange_bb.out
   
   
   return(output)
@@ -348,6 +356,48 @@ makeHomerangeMap <- function(data, colors){
   
 }
 
+makeOverviewMap <- function(data,pts,colors,alpha=0.8){
+  # handle missing or NA in testing fields so they don't screw up the color mapping
+  data$CaptureELISAStatus[which(data$CaptureELISAStatus==""| is.na(data$CaptureELISAStatus),arr.ind=TRUE)] <- "No Record"
+  data$CapturePCRStatus[which(data$CapturePCRStatus==""| is.na(data$CapturePCRStatus),arr.ind=TRUE)] <- "No Record"
+  
+  # we want same color pattern for test results (having no "Detected" can swap colors between plots)
+  # colors for test results #
+  tcol <- c(brewer.pal(3,'RdYlGn'),"#CCCCCC")
+  tcol.shuf <- c(tcol[1:2],tcol[4],tcol[3])
+  tcol <- tcol.shuf
+  pcr.col.map <- case_when(
+    data$CapturePCRStatus == "Detected" ~ 1,
+    data$CapturePCRStatus == "Indeterminate" ~ 2,
+    data$CapturePCRStatus == "Not detected" ~ 3,
+    data$CapturePCRStatus == "No Record" ~ 4
+  )
+  pcr.colors <- tcol[sort(unique(pcr.col.map))]
+  #pcr.colors <- tcol[pcr.col.map]
+  
+  ser.col.map <- case_when(
+    data$CaptureELISAStatus == "Detected" ~ 1,
+    data$CaptureELISAStatus == "Indeterminate" ~ 2,
+    data$CaptureELISAStatus == "Not detected" ~ 4,
+    data$CaptureELISAStatus == "No Record" ~ 3
+  )
+  ser.colors <- tcol[sort(unique(ser.col.map))]
+  
+  
+  id.col <- colors
+  sex.col <- c("pink","blue")
+  celisa.col <- colorRamps::matlab.like(7)
+  
+  outmap <- mapview(data, zcol="AnimalID", burst=FALSE,legend=TRUE, cex=4,lwd=1, col.regions=id.col,alpha=0.8)+
+    mapview(data, zcol="Sex", legend=TRUE, cex=4,lwd=1, col.regions=sex.col,alpha=0.8)+
+    mapview(data, zcol="CapturePCRStatus", legend=TRUE, cex=4,lwd=1, col.regions=pcr.colors,alpha=0.8)+
+    mapview(data, zcol="CaptureELISAStatus", legend=TRUE, cex=4,lwd=1, col.regions=ser.colors,alpha=0.8)+
+    mapview(data, zcol="Capture_cELISA", legend=TRUE, cex=4,lwd=1, col.regions=celisa.col,at=c(-15,0,20,40,60,80,100),alpha=0.8)+
+    mapview(pts,zcol="AnimalID",col.regions=id.col, cex=3)
+  
+  return(outmap@map)
+  
+}
 # Use heatmaply package to make quick matrix plot, or uncomment lower code for using 'image'
 overlapImagePlot <- function(intersect.mat){
   
@@ -443,13 +493,13 @@ overlapNetworkPlot <- function(c.list){
 # function to get nodes and edges from a matrix from DI between animals or overlap of HR between group of animals
 #   current available methods for clustering community are "walktrap", "louvain", "edge_betweenness" see igprah page for detail
 #   only walktrap and edge_b are avaialbe for directed adjacency matrices, louvain is not
-getClusterCommunity <- function(data.matrix,method="walktrap"){
+getClusterCommunity <- function(data.matrix,method="walktrap", mode="directed", steps=4){
   
   
-  g <- graph_from_adjacency_matrix(data.matrix,mode="directed",weighted=TRUE, diag=FALSE)
+  g <- graph_from_adjacency_matrix(data.matrix,mode=mode,weighted=TRUE, diag=FALSE)
   
   if (method=="walktrap"){
-    cw <- cluster_walktrap(g,steps=8)
+    cw <- cluster_walktrap(g,steps=steps)
   }
   if (method=="louvain"){
     cw <- cluster_louvain(g)
@@ -652,7 +702,7 @@ addClusterStats <- function(h.poly) {
   h.poly$cluster.mean.cELISA <- c(rep(0,nrow(h.poly)))
   h.poly$cluster.nMembers <- c(rep(0,nrow(h.poly)))
   
-  cmean <- h.poly %>% group_by(Cluster) %>% summarise(clus_mean_cElisa=mean(Capture_cELISA,na.rm=TRUE))
+  cmean <- h.poly %>% st_drop_geometry() %>% group_by(Cluster) %>% summarise(clus_mean_cElisa=mean(Capture_cELISA,na.rm=TRUE))
   
   for (i in 1:nclusters){
     clus <- clusters[i]
@@ -671,4 +721,163 @@ addClusterStats <- function(h.poly) {
   }
   
   return(h.poly)
+}
+
+# add cluster stats to data frame in sf object
+addClusterStats2 <- function(h.poly, entryYear.filter=NULL) {
+  
+  dat <- h.poly %>% st_drop_geometry() # get data table
+  
+   # if we only want to use a subste based on EntryBioYear to compute stats #
+    if (length(entryYear.filter)>0){
+      dat <- dat %>% filter(EntryBioYear==entryYear.filter)
+    }
+  # store status as Factor so we can get 0 counts
+  ef <- factor(dat$CaptureELISAStatus,levels=c("Detected","Not detected", "Indeterminate"))
+  pf <- factor(dat$CapturePCRStatus,levels=c("Detected","Not detected", "Indeterminate"))
+  
+  df <- data.frame(Cluster=dat$Cluster,ef=ef,pf=pf)
+  counts <- df %>% group_by(Cluster) %>% summarise(n=n())
+  
+  cElisa.count <- df %>% group_by(Cluster) %>% count(ef,.drop=FALSE)
+  cPCR.count <- df %>% group_by(Cluster) %>% count(pf,.drop=FALSE)
+  
+  clusters <- sort(unique(dat$Cluster))
+  nclusters <- length(clusters)
+  cluster.PCR.prev <- c(rep(0,nclusters))
+  cluster.ELISA.prev <- c(rep(0,nclusters))
+  cluster.nMembers <- c(rep(0,nclusters))
+  for (i in 1:nclusters){
+    nde <- cElisa.count %>% filter(Cluster==clusters[i] & ef=="Detected") %>% select(n)
+    ndp <- cPCR.count %>% filter(Cluster==clusters[i] & pf=="Detected") %>% select(n)
+    tot <- counts %>% filter(Cluster==clusters[i]) %>% select(n)
+    cluster.PCR.prev[clusters[i]] <- ndp$n/tot$n
+    cluster.ELISA.prev[clusters[i]] <- nde$n/tot$n
+    cluster.nMembers[clusters[i]] <- tot$n
+  }
+  df2 <- data.frame(cluster=clusters, cluster.PCR.prev,cluster.ELISA.prev, nMembers=cluster.nMembers)
+  
+  h.poly$cluster.PCR.prev <- c(rep(0,nrow(h.poly)))
+  h.poly$cluster.ELISA.prev <- c(rep(0,nrow(h.poly)))
+  h.poly$cluster.mean.cELISA <- c(rep(0,nrow(h.poly)))
+  h.poly$cluster.nMembers <- c(rep(0,nrow(h.poly)))
+  
+  cmean <- h.poly %>% st_drop_geometry() %>% group_by(Cluster) %>% summarise(clus_mean_cElisa=mean(Capture_cELISA,na.rm=TRUE))
+  
+  for (i in 1:nclusters){
+    clus <- clusters[i]
+    ind1 <- which(h.poly$Cluster %in% clus, arr.ind=TRUE)
+    ind2 <- which(df2$cluster %in% clus, arr.ind=TRUE)
+    ind3 <- which(cmean$Cluster %in% clus, arr.ind=TRUE)
+    pcr.value <- df2$cluster.PCR.prev[ind2]
+    el.value <- df2$cluster.ELISA.prev[ind2]
+    m.value <- cmean$clus_mean_cElisa[ind3]
+    n.value <- df2$nMembers[ind2]
+    h.poly$cluster.PCR.prev[ind1] <- c(rep(pcr.value,length(ind1)))
+    h.poly$cluster.ELISA.prev[ind1] <- c(rep(el.value,length(ind1)))
+    h.poly$cluster.mean.cELISA[ind1] <- c(rep(m.value,length(ind1)))
+    h.poly$cluster.nMembers[ind1] <- c(rep(n.value,length(ind1)))
+    
+  }
+  
+  return(h.poly)
+}
+
+# Draw trajectory and points, note that I haven't solved how to get the colors to match up correctly w/out summarizing point data and 
+#   losing the attributes because I needed to create a linestring using "group_by" - and had to create a multipoint to match using "group_by" so point attributes are lost
+makeLinePointMap <- function(sf.dat){
+  
+  trajectory <- sf.dat %>%
+   group_by(AnimalID) %>%
+   dplyr::summarize() %>%  
+    st_cast("LINESTRING") %>% arrange(AnimalID)
+ #points <- sf.dat %>% arrange(AnimalID)
+
+    #trajectory <- trajectory[1:15,]
+    
+ points <- sf.dat %>%
+   group_by(AnimalID) %>%
+   dplyr::summarize() %>% arrange(AnimalID)
+   
+ nanimal <- nrow(trajectory)
+ qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+ col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+ if (nanimal < length(col_vector)) colors <- sample(col_vector, nanimal) else colors <- sample(col_vector, nanimal,
+                                                                                                     replace=TRUE)
+ 
+ or.table <- sf.dat  %>%  as_tibble()  %>%  dplyr::select(-geometry)
+ points.a <- left_join(points,or.table, join_by(AnimalID)) # join the original attributes back, doesn't completely solve
+ 
+  #mapview(trajectory,zcol="AnimalID",color=colors)+mapview(points.a,zcol="AnimalID",cex=3,col.regions=colors,alpha.regions=1,legend=FALSE)
+  mapview(trajectory,zcol="AnimalID",color=colors)+mapview(sf.dat,zcol="AnimalID",cex=3,col.regions=colors,alpha.regions=1,legend=FALSE)
+  
+}
+
+# Simple and fast function Use MCP area to look for mortality like point patterns in the data #
+#. inputs: projected sf object (not lat/lon), area threshold to filter results (m2)
+#   output: mcp polygons with area column in m^2
+FindMortPattern_byMCP <- function(sf.dat,area.threshold){
+  
+  # need at least 5 relocations to get MCP (caution with using dplyr group_by on sf objects)
+  loc.per.animal <- sf.dat %>% st_drop_geometry() %>% group_by(AnimalID) %>%
+    summarize(Fix_count =  n())
+  drops <- which(loc.per.animal$Fix_count < 5,arr.ind=TRUE)
+  excludes <- loc.per.animal$AnimalID[drops]
+  if (length(drops)>0) sf.dat <- sf.dat[!sf.dat$AnimalID %in% excludes,]
+  
+  # convert sf to sp
+  dat.sp <- sf.dat %>% select(AnimalID) %>% as("Spatial")
+  
+  mcps <- mcp(dat.sp,percent=100,unout="m2") # 95 allows an outlier
+  
+  mcps.sf <- st_as_sf(mcps)
+  names(mcps.sf)[1] <- "AnimalID"
+  MCP <- mcps.sf %>% filter(area < area.threshold)
+  PointsOut <- sf.dat %>% filter(AnimalID %in% MCP$AnimalID)
+  
+  return(list(MCP=MCP,PointsOut=PointsOut))
+  
+}
+
+# Alternative search for mort using dispersion msmts, see sfdep pkg
+FindMortPattern_bySDD <- function(sf.dat,dist.threshold){
+  
+  # probably need at least 5 relocations  (caution with using dplyr group_by on sf objects)
+  loc.per.animal <- sf.dat %>% st_drop_geometry() %>% group_by(AnimalID) %>%
+    summarize(Fix_count =  n())
+  drops <- which(loc.per.animal$Fix_count < 3,arr.ind=TRUE)
+  excludes <- loc.per.animal$AnimalID[drops]
+  if (length(drops)>0) sf.dat <- sf.dat[!sf.dat$AnimalID %in% excludes,]
+  
+  # compute std_distance measure to each point pattern by animalID
+  dat.sdd <- sf.dat %>% group_by(AnimalID) %>% group_map(~ std_distance(.x))
+  AnimalID <- sf.dat %>% select(AnimalID) %>% st_drop_geometry() %>% unique()
+  sdd <- data.frame(AnimalID=AnimalID, SDD=unlist(dat.sdd))
+  out.sdd <- sdd %>% filter(SDD < dist.threshold)
+  
+  return(out.sdd)
+  
+}
+
+# A function to query a DB and return the most recent N GPS fixes for each animal unless a vector of IDs is provided
+#   Inputs: tbl_db - a reference to the GPS table in the DB from dplyr function tbl
+#           n   - number of records to return
+#           ids - options vector of IDs to match in AnimalID column
+FetchLastNFixes <- function(tbl_db, n, ids=NULL) {
+  
+  # query for appropriate data
+  if (length(ids) > 0) {
+  gps <- tbl_db %>% filter(AnimalID %in% ids) %>% group_by(AnimalID) %>% slice_max(order_by="acquisitiontime",n=n) %>% collect() 
+  } else {
+    gps <- tbl_db %>% group_by(AnimalID) %>% distinct() %>% slice_max(order_by="acquisitiontime",n=n) %>% collect()
+  }
+}
+
+# a simple function to calculate prevalence in Movi data, ie. counting 'Detected' in data and dividing by total
+calcPrevalence <- function(data) {
+  
+  n_detected <- length(which(data=="Detected", arr.ind=TRUE))
+  prev <- n_detected/length(which(!(is.na(data)), arr.ind=TRUE))
+  
+  return(prev)
 }
