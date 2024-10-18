@@ -22,8 +22,8 @@ gps.tab.name <- "AnimalID_GPS"
 
 # File with the library of functions built for all this work #
   
-  #source("HomeRange-Functions.R")
-  source("/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/RCode/Functions/HomeRange-Functions.R")
+  source("HomeRange-Functions.R")
+  #source("/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/RCode/Functions/HomeRange-Functions.R")
   source("download-helpers.R")
 
 # EPSG CRS for each state
