@@ -13,6 +13,7 @@ library(DT)
 library(visNetwork)
 library(stringr)
 library(shinyFiles)
+library(RSQLite)
 
 #
 
