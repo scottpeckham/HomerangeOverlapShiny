@@ -187,7 +187,9 @@ server <- function(input, output, session) {
         # Connect to the data base read GPS table we need #
         con <- dbConnect(RSQLite::SQLite(),fileval(), extended_types=TRUE)
         
-        dbpath <- "/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/Databases/BHS_TriState.db"
+        #dbpath <- "/Users/scottp/DocumentsNew/BighornSheep/FY22-WSF-GIA/Databases/BHS_TriState.db"
+        dbpath <- nfile
+        
         con <- dbConnect(RSQLite::SQLite(),dbpath, extended_types=TRUE)
         
         # query for gps, don't read into memory
