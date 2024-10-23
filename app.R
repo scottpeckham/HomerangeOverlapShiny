@@ -236,9 +236,11 @@ server <- function(input, output, session) {
     # query for gps, don't read into memory
     gps_db <- tbl(con, gps.tab.name) # reference to the table
     
-    # query and store in data frame
-    gps <- gps_db %>% filter(Herd==input$selectHerd & Sex==input$sex) %>% 
-      filter(acquisitiontime>= t1 & acquisitiontime <= t2) %>% collect()
+    # query and store in data frame (note condition on gender input)
+    if (input$sex == "FEMALE" | input$sex == "MALE") gps <- gps_db %>% filter(Herd==input$selectHerd & Sex==input$sex) %>% 
+      filter(acquisitiontime>= t1 & acquisitiontime <= t2) %>% collect() 
+    if (input$sex == "all") gps <- gps_db %>% filter(Herd==input$selectHerd) %>% 
+      filter(acquisitiontime>= t1 & acquisitiontime <= t2) %>% collect() 
     
     # close out DB connection
     dbDisconnect(con)
