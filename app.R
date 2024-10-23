@@ -266,7 +266,7 @@ server <- function(input, output, session) {
   })
   
   analysisHR <- observeEvent(input$runAnalysis,{
-    cat("Computing home ranges for:", input$selectHerd, " for ",input$dates[1], " to ", input$dates[2])
+    cat("Computing home ranges for:", input$selectHerd, " for ",format(input$dates[1], format="%Y-%m-%d %H:%M:%S",tz="GMT"), " to ", format(input$dates[2], format="%Y-%m-%d %H:%M:%S",tz="GMT"))
     output.proj <-switch(input$selectHerd,
            "Burnt River"=or.prj,
            "Lookout Mountain" = or.prj,

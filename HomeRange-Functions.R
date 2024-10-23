@@ -54,7 +54,7 @@ library(sfdep)
 # Output: 
 #       Either a sf object of home ranges, or a named list with the homeranges and estUD object depending on choice above
   
-calculateHomerange <- function(gps, min.fixes, output.proj, contour.percent=95, grid=800, extent=0.5, output.UD=FALSE){
+calculateHomerange <- function(gps, min.fixes, output.proj, contour.percent=95, grid=800, extent=1.0, output.UD=FALSE){
   
   # check data type
   if(!is(gps, "sf"))
@@ -74,7 +74,7 @@ calculateHomerange <- function(gps, min.fixes, output.proj, contour.percent=95, 
   att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),] %>% as.data.frame()
   sz <- gps %>% as.data.frame() %>% group_by(AnimalID) %>% summarize(nLocations=n(),startDate=min(acquisitiontime),endDate=max(acquisitiontime))
   att.table <- left_join(att.table,sz,by="AnimalID")
-  att.table <- att.table[,c(1:8,10,12:14)] #strip off some useless columns
+  #att.table <- att.table[,c(1:8,10,12:14)] #strip off some useless columns
   
   # remove any possible duplicates
   gps <- gps %>% distinct()
@@ -134,7 +134,7 @@ calculateHomerange <- function(gps, min.fixes, output.proj, contour.percent=95, 
 #                 ~1 for 95% home ranges with large dispersion, most common cause for 'getverticesHR' function failing
 # Output: 
 #       Either a sf object of home ranges, or estUD object depening on choice above
-calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj, output.UD=FALSE, grid=800, extent=0.5){
+calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj, output.UD=FALSE, grid=800, extent=1.0){
   
   # check data type
   if(!is(gps, "sf"))
@@ -162,7 +162,7 @@ calculateBBHomerange <- function(gps, min.fixes, contour.percent=95, output.proj
   att.table <- gps[match(unique(gps$AnimalID),gps$AnimalID),] 
   sz <- gps %>% as.data.frame() %>% group_by(AnimalID) %>% summarize(nLocations=n(),startDate=min(acquisitiontime),endDate=max(acquisitiontime))
   att.table <- left_join(att.table,sz,by="AnimalID")
-  att.table <- att.table[,c(1:8,10,12:14)] #strip off some useless columns
+  #att.table <- att.table[,c(1:8,10,12:14)] #strip off some useless columns
   
   # Transform input gps to proj.crs (typically UTM for Oregon, but must be projected coord system)
   gps.sf.utm <- st_transform(gps,crs=output.proj)  # transform to user input 
